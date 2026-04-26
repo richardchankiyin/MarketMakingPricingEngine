@@ -1,71 +1,99 @@
 package com.richard.marketmakingpricing;
 
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.*;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class PriceAggregator {
-    // Price -> LinkedHashMap<LP_ID, Size> for FIFO priority at each level
     private final NavigableMap<Double, Map<String, Integer>> bids = new ConcurrentSkipListMap<>(Collections.reverseOrder());
     private final NavigableMap<Double, Map<String, Integer>> asks = new ConcurrentSkipListMap<>();
+    private final Map<String, LPQuoteRecord> lpRegistry;
     
-    private final Map<String, LPQuoteRecord> lpRegistry = new ConcurrentHashMap<>();
+    private final ReentrantLock lock = new ReentrantLock();
     private MarketUpdateListener listener;
+    private final int lpCount;
+
+    public PriceAggregator() {
+        this(5);
+    }
+
+    public PriceAggregator(int lpCount) {
+        this.lpCount = lpCount;
+        this.lpRegistry = new ConcurrentHashMap<>(lpCount);
+    }
 
     public void setListener(MarketUpdateListener listener) {
         this.listener = listener;
     }
 
-    public synchronized void onUpdate(String lpId, double bid, int bidSize, double ask, int askSize) {
-        // 1. Remove old prices for this LP
-        LPQuoteRecord old = lpRegistry.get(lpId);
-        if (old != null) {
-            removeLiquidity(bids, old.lastBid, lpId);
-            removeLiquidity(asks, old.lastAsk, lpId);
+    public void onUpdate(String lpId, double bid, int bidSize, double ask, int askSize) {
+        LPQuoteRecord record = lpRegistry.computeIfAbsent(lpId, k -> new LPQuoteRecord());
+
+        try {
+            if (lock.tryLock(5, TimeUnit.MILLISECONDS)) {
+                try {
+                    if (record.hasValidPrices()) {
+                        removeLiquidity(bids, record.lastBid, lpId);
+                        removeLiquidity(asks, record.lastAsk, lpId);
+                    }
+
+                    // Store new values
+                    bids.computeIfAbsent(bid, k -> new LinkedHashMap<>(lpCount)).put(lpId, bidSize);
+                    asks.computeIfAbsent(ask, k -> new LinkedHashMap<>(lpCount)).put(lpId, askSize);
+                    
+                    record.update(bid, bidSize, ask, askSize);
+                    triggerUpdate(); 
+                } finally {
+                    lock.unlock();
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
-
-        // 2. Add new liquidity (LinkedHashMap maintains FIFO)
-        bids.computeIfAbsent(bid, k -> new LinkedHashMap<>()).put(lpId, bidSize);
-        asks.computeIfAbsent(ask, k -> new HashMap<>()).put(lpId, askSize);
-
-        // 3. Update Registry
-        lpRegistry.put(lpId, new LPQuoteRecord(bid, ask));
-
-        // 4. Trigger the notification
-        triggerUpdate();
     }
 
-    /**
-     * Aggregates the top-of-book volume and notifies the PricingEngine.
-     */
     private void triggerUpdate() {
-        if (listener == null || bids.isEmpty() || asks.isEmpty()) {
-            return;
+        if (listener == null || bids.isEmpty() || asks.isEmpty()) return;
+
+        // Best Bid Calculation
+        double bb = bids.firstKey();
+        Map<String, Integer> bidLevel = bids.get(bb);
+        int totalBidSize = 0;
+        
+        if (bidLevel != null) {
+            // Using explicit iterator to avoid hidden stream/lambda allocations
+            // JIT Escape Analysis typically scalar-replaces this iterator
+            for (Integer val : bidLevel.values()) {
+                if (val != null) {
+                    totalBidSize += val.intValue(); 
+                }
+            }
+        }
+        
+        // Best Ask Calculation
+        double ba = asks.firstKey();
+        Map<String, Integer> askLevel = asks.get(ba);
+        int totalAskSize = 0;
+        
+        if (askLevel != null) {
+            for (Integer val : askLevel.values()) {
+                if (val != null) {
+                    totalAskSize += val.intValue();
+                }
+            }
         }
 
-        // Extract Best Bid and sum all volume at that price
-        double bestBid = bids.firstKey();
-        int totalBidSize = bids.get(bestBid).values().stream().mapToInt(Integer::intValue).sum();
-
-        // Extract Best Ask and sum all volume at that price
-        double bestAsk = asks.firstKey();
-        int totalAskSize = asks.get(bestAsk).values().stream().mapToInt(Integer::intValue).sum();
-
-        // Push to PricingEngine
-        listener.onBookUpdate(bestBid, totalBidSize, bestAsk, totalAskSize);
+        listener.onBookUpdate(bb, totalBidSize, ba, totalAskSize);
     }
 
     private void removeLiquidity(NavigableMap<Double, Map<String, Integer>> book, double price, String lpId) {
         Map<String, Integer> levels = book.get(price);
         if (levels != null) {
             levels.remove(lpId);
-            if (levels.isEmpty()) {
-                book.remove(price);
-            }
+            if (levels.isEmpty()) book.remove(price);
         }
     }
 
-    // Sweep logic for OMS
     public double sweepBook(boolean buyFromLPs, int targetQty) {
         NavigableMap<Double, Map<String, Integer>> side = buyFromLPs ? asks : bids;
         int remaining = targetQty;
@@ -73,8 +101,9 @@ public class PriceAggregator {
 
         for (Map.Entry<Double, Map<String, Integer>> level : side.entrySet()) {
             double price = level.getKey();
-            for (int qtyAtLP : level.getValue().values()) {
-                int take = Math.min(remaining, qtyAtLP);
+            for (Integer qtyAtLP : level.getValue().values()) {
+                int qty = (qtyAtLP != null) ? qtyAtLP.intValue() : 0;
+                int take = Math.min(remaining, qty);
                 totalCost += (take * price);
                 remaining -= take;
                 if (remaining <= 0) break;
@@ -84,14 +113,27 @@ public class PriceAggregator {
         return (targetQty == remaining) ? 0.0 : totalCost / (targetQty - remaining);
     }
 
-    // Getters for Unit Tests
+    private static class LPQuoteRecord {
+        double lastBid = -1, lastAsk = -1;
+        int lastBidSize, lastAskSize;
+        double prevBid, prevAsk;
+        int prevBidSize, prevAskSize;
+
+        void update(double b, int bs, double a, int as) {
+            this.prevBid = this.lastBid;
+            this.prevBidSize = this.lastBidSize;
+            this.prevAsk = this.lastAsk;
+            this.prevAskSize = this.lastAskSize;
+
+            this.lastBid = b;
+            this.lastBidSize = bs;
+            this.lastAsk = a;
+            this.lastAskSize = as;
+        }
+        boolean hasValidPrices() { return lastBid != -1; }
+    }
+
+    // Getters for Test/Audit
     public double getBestBid() { return bids.isEmpty() ? 0.0 : bids.firstKey(); }
     public double getBestAsk() { return asks.isEmpty() ? Double.MAX_VALUE : asks.firstKey(); }
-    public int getBidDepth() { return bids.size(); }
-    public int getAskDepth() { return asks.size(); }
-
-    private static class LPQuoteRecord {
-        final double lastBid, lastAsk;
-        LPQuoteRecord(double b, double a) { this.lastBid = b; this.lastAsk = a; }
-    }
 }
