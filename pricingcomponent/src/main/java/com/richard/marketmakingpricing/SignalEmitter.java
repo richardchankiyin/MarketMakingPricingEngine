@@ -8,16 +8,10 @@ public class SignalEmitter implements MarketUpdateListener {
     private final double changeThreshold;
     private SignalListener listener;
 
-    /**
-     * Default constructor with 0.001 threshold.
-     */
     public SignalEmitter() {
         this(0.001);
     }
 
-    /**
-     * @param changeThreshold Sensitivity of the signal emission.
-     */
     public SignalEmitter(double changeThreshold) {
         this.changeThreshold = changeThreshold;
     }
@@ -28,20 +22,23 @@ public class SignalEmitter implements MarketUpdateListener {
 
     @Override
     public void onBookUpdate(double bid, int bSize, double ask, int aSize, double vwapBid, double vwapAsk) {
+        // Basic validation to prevent NaN or Infinity
         if (vwapBid <= 0 || vwapAsk <= 0 || bid >= ask) return;
 
-        // Internal Market Mid calculation
         double marketMid = (bid + ask) / 2.0;
-
-        // Urgency relative to internal market mid
         double bidUrgency = marketMid - vwapBid;
         double askUrgency = vwapAsk - marketMid;
 
-        // Normalized skew: (AskDist - BidDist) / Mid
+        // Skew is the difference in urgency
         double rawSkew = (askUrgency - bidUrgency) / marketMid;
         
-        // Final Signal: Bid Aggression (low urgency) = Bearish (-1)
-        double newSignal = Math.max(-1.0, Math.min(1.0, -rawSkew * 1000.0));
+        // Scale by 1000 to make small basis point moves significant
+        // Flip sign: Aggressive Bids (low bidUrgency) -> Negative Signal
+        double newSignal = -rawSkew * 1000.0;
+        
+        // Clamp to [-1.0, 1.0]
+        if (newSignal > 1.0) newSignal = 1.0;
+        if (newSignal < -1.0) newSignal = -1.0;
 
         updateAtomicSignal(newSignal);
     }
@@ -51,8 +48,10 @@ public class SignalEmitter implements MarketUpdateListener {
             long currentBits = lastSignalBits.get();
             double previous = Double.longBitsToDouble(currentBits);
 
-            // Using the threshold passed via constructor
-            if (Math.abs(newSignal - previous) < changeThreshold) break;
+            // If the change is smaller than threshold, suppress update
+            if (Math.abs(newSignal - previous) < changeThreshold) {
+                break;
+            }
 
             if (lastSignalBits.compareAndSet(currentBits, Double.doubleToRawLongBits(newSignal))) {
                 if (listener != null) {
