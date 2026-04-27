@@ -12,6 +12,7 @@ public class PriceAggregator {
     private final ReentrantLock lock = new ReentrantLock();
     private MarketUpdateListener listener;
     private final int lpCount;
+    private static final int ONUPDATETRYLOCK_MS=5;
 
     public PriceAggregator() {
         this(5);
@@ -30,11 +31,11 @@ public class PriceAggregator {
         LPQuoteRecord record = lpRegistry.computeIfAbsent(lpId, k -> new LPQuoteRecord());
 
         try {
-            if (lock.tryLock(5, TimeUnit.MILLISECONDS)) {
+            if (lock.tryLock(ONUPDATETRYLOCK_MS, TimeUnit.MILLISECONDS)) {
                 try {
                     if (record.hasValidPrices()) {
-                        removeLiquidity(bids, record.lastBid, lpId);
-                        removeLiquidity(asks, record.lastAsk, lpId);
+                        removeLiquidity(bids, record.getLastBid(), lpId);
+                        removeLiquidity(asks, record.getLastAsk(), lpId);
                     }
 
                     // Store new values
@@ -55,35 +56,51 @@ public class PriceAggregator {
     private void triggerUpdate() {
         if (listener == null || bids.isEmpty() || asks.isEmpty()) return;
 
-        // Best Bid Calculation
-        double bb = bids.firstKey();
-        Map<String, Integer> bidLevel = bids.get(bb);
-        int totalBidSize = 0;
-        
-        if (bidLevel != null) {
-            // Using explicit iterator to avoid hidden stream/lambda allocations
-            // JIT Escape Analysis typically scalar-replaces this iterator
-            for (Integer val : bidLevel.values()) {
-                if (val != null) {
-                    totalBidSize += val.intValue(); 
-                }
-            }
-        }
-        
-        // Best Ask Calculation
-        double ba = asks.firstKey();
-        Map<String, Integer> askLevel = asks.get(ba);
-        int totalAskSize = 0;
-        
-        if (askLevel != null) {
-            for (Integer val : askLevel.values()) {
-                if (val != null) {
-                    totalAskSize += val.intValue();
-                }
-            }
-        }
+        // --- BID SIDE PASS ---
+        double bestBid = bids.firstKey();
+        int topBidSize = 0;
+        double totalBidValue = 0;
+        long totalBidVolume = 0;
 
-        listener.onBookUpdate(bb, totalBidSize, ba, totalAskSize);
+        for (Map.Entry<Double, Map<String, Integer>> entry : bids.entrySet()) {
+            double price = entry.getKey();
+            int levelSize = 0;
+            for (Integer size : entry.getValue().values()) {
+                if (size != null) {
+                    int s = size.intValue();
+                    levelSize += s;
+                    totalBidValue += (price * s);
+                    totalBidVolume += s;
+                }
+            }
+            // Capture top-of-book size on the first iteration
+            if (price == bestBid) topBidSize = levelSize;
+        }
+        double vwapBid = totalBidVolume == 0 ? 0 : totalBidValue / totalBidVolume;
+
+        // --- ASK SIDE PASS ---
+        double bestAsk = asks.firstKey();
+        int topAskSize = 0;
+        double totalAskValue = 0;
+        long totalAskVolume = 0;
+
+        for (Map.Entry<Double, Map<String, Integer>> entry : asks.entrySet()) {
+            double price = entry.getKey();
+            int levelSize = 0;
+            for (Integer size : entry.getValue().values()) {
+                if (size != null) {
+                    int s = size.intValue();
+                    levelSize += s;
+                    totalAskValue += (price * s);
+                    totalAskVolume += s;
+                }
+            }
+            if (price == bestAsk) topAskSize = levelSize;
+        }
+        double vwapAsk = totalAskVolume == 0 ? 0 : totalAskValue / totalAskVolume;
+
+        // Broadcast everything in one go
+        listener.onBookUpdate(bestBid, topBidSize, bestAsk, topAskSize, vwapBid, vwapAsk);
     }
 
     private void removeLiquidity(NavigableMap<Double, Map<String, Integer>> book, double price, String lpId) {
@@ -114,12 +131,12 @@ public class PriceAggregator {
     }
 
     private static class LPQuoteRecord {
-        double lastBid = -1, lastAsk = -1;
-        int lastBidSize, lastAskSize;
-        double prevBid, prevAsk;
-        int prevBidSize, prevAskSize;
+        private double lastBid = -1, lastAsk = -1;
+        private int lastBidSize, lastAskSize;
+        private double prevBid, prevAsk;
+        private int prevBidSize, prevAskSize;
 
-        void update(double b, int bs, double a, int as) {
+        private void update(double b, int bs, double a, int as) {
             this.prevBid = this.lastBid;
             this.prevBidSize = this.lastBidSize;
             this.prevAsk = this.lastAsk;
@@ -130,7 +147,41 @@ public class PriceAggregator {
             this.lastAsk = a;
             this.lastAskSize = as;
         }
-        boolean hasValidPrices() { return lastBid != -1; }
+        
+        
+        
+        public double getLastBid() {
+			return lastBid;
+		}
+		public double getLastAsk() {
+			return lastAsk;
+		}
+
+		@SuppressWarnings("unused")
+		public int getLastBidSize() {
+			return lastBidSize;
+		}
+		@SuppressWarnings("unused")
+		public int getLastAskSize() {
+			return lastAskSize;
+		}
+		@SuppressWarnings("unused")
+		public double getPrevBid() {
+			return prevBid;
+		}
+		@SuppressWarnings("unused")
+		public double getPrevAsk() {
+			return prevAsk;
+		}
+		@SuppressWarnings("unused")
+		public int getPrevBidSize() {
+			return prevBidSize;
+		}
+		@SuppressWarnings("unused")
+		public int getPrevAskSize() {
+			return prevAskSize;
+		}
+		private boolean hasValidPrices() { return lastBid != -1; }
     }
 
     // Getters for Test/Audit

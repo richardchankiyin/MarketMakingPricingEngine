@@ -1,10 +1,9 @@
 package com.richard.marketmakingpricing;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import static org.junit.jupiter.api.Assertions.*;
-
-import java.util.concurrent.atomic.AtomicReference;
 
 public class PriceAggregatorTest {
 
@@ -28,20 +27,34 @@ public class PriceAggregatorTest {
     }
 
     @Test
-    void testVolumeAggregationAtSamePrice() {
-        // Arrange: Two LPs at the exact same best bid
-        aggregator.onUpdate("LP_A", 100.0, 50, 101.0, 10);
-        aggregator.onUpdate("LP_B", 100.0, 50, 101.0, 10);
+    public void testVolumeAggregationAndVWAP() {
+        PriceAggregator aggregator = new PriceAggregator(5);
+        
+        // Using a simple stub/lambda for the listener to capture values
+        final double[] results = new double[2]; // [0] = vwapBid, [1] = vwapAsk
+        aggregator.setListener((bid, bSize, ask, aSize, vwapBid, vwapAsk) -> {
+            results[0] = vwapBid;
+            results[1] = vwapAsk;
+        });
 
-        // We need a listener to capture the pushed updates
-        AtomicReference<Integer> capturedBidSize = new AtomicReference<>(0);
-        aggregator.setListener((b, bSize, a, aSize) -> capturedBidSize.set(bSize));
+        // Setup: 2 LPs on Bid side
+        // LP1: 100 @ 1.2500
+        // LP2: 300 @ 1.2500 (Same price)
+        // Total: 400 @ 1.2500 -> VWAP should be 1.2500
+        aggregator.onUpdate("LP1", 1.2500, 100, 1.2600, 100);
+        aggregator.onUpdate("LP2", 1.2500, 300, 1.2600, 300);
 
-        // Act: Trigger a refresh
-        aggregator.onUpdate("LP_C", 99.0, 10, 102.0, 10);
+        assertEquals(1.2500, results[0], 0.00001, "VWAP Bid should match price when all LPs are at same level");
 
-        // Assert
-        assertEquals(100, capturedBidSize.get(), "Bid volume should be sum of LP_A and LP_B (50+50)");
+        // Change LP2 to a better price
+        // LP1: 100 @ 1.2500
+        // LP2: 100 @ 1.2510
+        // Total Volume = 200. Total Value = (125 + 125.1) = 250.1
+        // Expected VWAP = 250.1 / 200 = 1.2505
+        aggregator.onUpdate("LP2", 1.2510, 100, 1.2610, 100);
+
+        assertEquals(1.2505, results[0], 0.00001, "VWAP Bid should correctly weigh multiple price levels");
+        assertEquals(1.2605, results[1], 0.00001, "VWAP Ask should correctly weigh multiple price levels");
     }
 
     @Test

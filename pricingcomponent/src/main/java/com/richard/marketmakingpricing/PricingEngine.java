@@ -28,7 +28,7 @@ public class PricingEngine implements MarketUpdateListener {
     }
 
     @Override
-    public void onBookUpdate(double bid, int bSize, double ask, int aSize) {
+    public void onBookUpdate(double bid, int bSize, double ask, int aSize,  double vwapBid, double vwapAsk) {
         localBook.update(bid, bSize, ask, aSize);
         refreshQuote();
     }
