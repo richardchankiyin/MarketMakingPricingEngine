@@ -5,14 +5,14 @@ import java.util.concurrent.*;
 import java.util.concurrent.locks.ReentrantLock;
 
 public class PriceAggregator {
+    private final List<MarketUpdateListener> listeners = new CopyOnWriteArrayList<>();
     private final NavigableMap<Double, Map<String, Integer>> bids = new ConcurrentSkipListMap<>(Collections.reverseOrder());
     private final NavigableMap<Double, Map<String, Integer>> asks = new ConcurrentSkipListMap<>();
     private final Map<String, LPQuoteRecord> lpRegistry;
     
     private final ReentrantLock lock = new ReentrantLock();
-    private MarketUpdateListener listener;
     private final int lpCount;
-    private static final int ONUPDATETRYLOCK_MS=5;
+    private static final int ONUPDATETRYLOCK_MS = 5;
 
     public PriceAggregator() {
         this(5);
@@ -23,8 +23,8 @@ public class PriceAggregator {
         this.lpRegistry = new ConcurrentHashMap<>(lpCount);
     }
 
-    public void setListener(MarketUpdateListener listener) {
-        this.listener = listener;
+    public void addListener(MarketUpdateListener listener) {
+        this.listeners.add(listener);
     }
 
     public void onUpdate(String lpId, double bid, int bidSize, double ask, int askSize) {
@@ -54,7 +54,8 @@ public class PriceAggregator {
     }
 
     private void triggerUpdate() {
-        if (listener == null || bids.isEmpty() || asks.isEmpty()) return;
+        // CHANGED: Check the 'listeners' list, not a single 'listener' field
+        if (listeners.isEmpty() || bids.isEmpty() || asks.isEmpty()) return;
 
         // --- BID SIDE PASS ---
         double bestBid = bids.firstKey();
@@ -67,13 +68,12 @@ public class PriceAggregator {
             int levelSize = 0;
             for (Integer size : entry.getValue().values()) {
                 if (size != null) {
-                    int s = size.intValue();
+                    int s = size;
                     levelSize += s;
                     totalBidValue += (price * s);
                     totalBidVolume += s;
                 }
             }
-            // Capture top-of-book size on the first iteration
             if (price == bestBid) topBidSize = levelSize;
         }
         double vwapBid = totalBidVolume == 0 ? 0 : totalBidValue / totalBidVolume;
@@ -89,7 +89,7 @@ public class PriceAggregator {
             int levelSize = 0;
             for (Integer size : entry.getValue().values()) {
                 if (size != null) {
-                    int s = size.intValue();
+                    int s = size;
                     levelSize += s;
                     totalAskValue += (price * s);
                     totalAskVolume += s;
@@ -99,8 +99,10 @@ public class PriceAggregator {
         }
         double vwapAsk = totalAskVolume == 0 ? 0 : totalAskValue / totalAskVolume;
 
-        // Broadcast everything in one go
-        listener.onBookUpdate(bestBid, topBidSize, bestAsk, topAskSize, vwapBid, vwapAsk);
+        // CHANGED: Broadcast to the entire list of listeners
+        for (MarketUpdateListener l : listeners) {
+            l.onBookUpdate(bestBid, topBidSize, bestAsk, topAskSize, vwapBid, vwapAsk);
+        }
     }
 
     private void removeLiquidity(NavigableMap<Double, Map<String, Integer>> book, double price, String lpId) {
@@ -119,7 +121,7 @@ public class PriceAggregator {
         for (Map.Entry<Double, Map<String, Integer>> level : side.entrySet()) {
             double price = level.getKey();
             for (Integer qtyAtLP : level.getValue().values()) {
-                int qty = (qtyAtLP != null) ? qtyAtLP.intValue() : 0;
+                int qty = (qtyAtLP != null) ? qtyAtLP : 0;
                 int take = Math.min(remaining, qty);
                 totalCost += (take * price);
                 remaining -= take;
@@ -148,43 +150,11 @@ public class PriceAggregator {
             this.lastAskSize = as;
         }
         
-        
-        
-        public double getLastBid() {
-			return lastBid;
-		}
-		public double getLastAsk() {
-			return lastAsk;
-		}
-
-		@SuppressWarnings("unused")
-		public int getLastBidSize() {
-			return lastBidSize;
-		}
-		@SuppressWarnings("unused")
-		public int getLastAskSize() {
-			return lastAskSize;
-		}
-		@SuppressWarnings("unused")
-		public double getPrevBid() {
-			return prevBid;
-		}
-		@SuppressWarnings("unused")
-		public double getPrevAsk() {
-			return prevAsk;
-		}
-		@SuppressWarnings("unused")
-		public int getPrevBidSize() {
-			return prevBidSize;
-		}
-		@SuppressWarnings("unused")
-		public int getPrevAskSize() {
-			return prevAskSize;
-		}
-		private boolean hasValidPrices() { return lastBid != -1; }
+        public double getLastBid() { return lastBid; }
+        public double getLastAsk() { return lastAsk; }
+        private boolean hasValidPrices() { return lastBid != -1; }
     }
 
-    // Getters for Test/Audit
     public double getBestBid() { return bids.isEmpty() ? 0.0 : bids.firstKey(); }
     public double getBestAsk() { return asks.isEmpty() ? Double.MAX_VALUE : asks.firstKey(); }
 }

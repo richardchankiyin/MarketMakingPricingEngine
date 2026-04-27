@@ -32,7 +32,7 @@ public class PriceAggregatorTest {
         
         // Using a simple stub/lambda for the listener to capture values
         final double[] results = new double[2]; // [0] = vwapBid, [1] = vwapAsk
-        aggregator.setListener((bid, bSize, ask, aSize, vwapBid, vwapAsk) -> {
+        aggregator.addListener((bid, bSize, ask, aSize, vwapBid, vwapAsk) -> {
             results[0] = vwapBid;
             results[1] = vwapAsk;
         });

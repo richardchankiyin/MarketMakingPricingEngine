@@ -36,7 +36,7 @@ public class PricingEngine implements MarketUpdateListener, SignalListener {
         this.maxSignalSkew = maxSignalSkew;
         this.quoteSize = quoteSize;
 
-        this.aggregator.setListener(this);
+        this.aggregator.addListener(this);
         this.signalEmitter.setListener(this);
     }
 
