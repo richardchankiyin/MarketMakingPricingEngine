@@ -21,8 +21,10 @@ public class App {
         // 4. Initialize the Market Generator
         MarketGenerator generator = new MarketGenerator(aggregator, signalEmitter, engine);
 
-        // 5. Wire Engine Output to the Gateway
-        // We wrap the primitives into a simple Record or Map for JSON conversion
+        // 5. Wire Signal/Engine Output to the Gateway
+        signalEmitter.addListener((signal)->{
+        	gateway.pushSignalUpdate(signal);
+        });        
         engine.addListener((bid, bSize, ask, aSize, iBid, iAsk) -> {
         	gateway.pushPriceUpdate(bid, bSize, ask, aSize, (iBid + iAsk) / 2.0);
         });

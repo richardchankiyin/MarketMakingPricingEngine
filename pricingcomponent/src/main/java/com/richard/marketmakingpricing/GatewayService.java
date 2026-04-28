@@ -9,79 +9,98 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class GatewayService {
-	private final QuoteUpdate reusableUpdate = new QuoteUpdate();
+	private final QuoteUpdate reusableQuoteUpdate = new QuoteUpdate();
+	private final SignalUpdate reusableSignalUpdate = new SignalUpdate();
     private static final Logger log = LoggerFactory.getLogger(GatewayService.class);
     private final Javalin app;
-    private final ConcurrentLinkedQueue<SseClient> clients = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<SseClient> pricingengineclients = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<SseClient> signalclients = new ConcurrentLinkedQueue<>();
     
     private final long intervalNanos;
-    private final AtomicLong lastPushPriceUpdateTime = new AtomicLong(0);
+    private final AtomicLong lastPushPriceUpdateTime = new AtomicLong(0);    
+    private final AtomicLong lastPushSignalUpdateTime = new AtomicLong(0);
 
     public GatewayService(int port, int intervalMs) {
     	// Convert MS to Nanos for higher precision comparison
         this.intervalNanos = intervalMs * 1_000_000L;
         
     	app = Javalin.create(config -> {
-    		config.routes.sse("/stream", client -> {
+    		config.routes.sse("/priceengine", client -> {
     		    client.keepAlive();
-    		    client.onClose(() -> clients.remove(client));
-    		    clients.add(client);
-    		    client.sendEvent("info", "Welcome to Gateway");    			
+    		    client.onClose(() -> pricingengineclients.remove(client));
+    		    pricingengineclients.add(client);
+    		    client.sendEvent("info", "Welcome to Gateway PriceEngine");    			
     		});
+    		
+    		config.routes.sse("/signal", client -> {
+    		    client.keepAlive();
+    		    client.onClose(() -> signalclients.remove(client));
+    		    signalclients.add(client);
+    		    client.sendEvent("info", "Welcome to Gateway Signal");   
+    		});
+    				
     	}).start(port);
         
     }
 
     
     /**
-     * Throttled push using a Time-Window / Token-Bucket logic.
-     * Drops updates if they arrive faster than the defined interval.
+     * Pushes price updates to /priceengine
      */
     public void pushPriceUpdate(double bid, int bSize, double ask, int aSize, double mid) {
-        if (clients.isEmpty()) return;
+        if (pricingengineclients.isEmpty()) return;
 
+        // check time window. If prev sent was too early we will discard
         long now = System.nanoTime();
-        long last = lastPushPriceUpdateTime.get();
+        if (now - lastPushPriceUpdateTime.get() < intervalNanos) return;
 
-        // Check if enough time has passed since the last push
-        if (now - last < intervalNanos) {
-            return; // Discard: Throttled
-        }
-
-        // Try to update the timestamp. If another thread beat us to it, we skip.
-        if (lastPushPriceUpdateTime.compareAndSet(last, now)) {
-        	// 1. Update the mutable object's state
-            reusableUpdate.update(bid, bSize, ask, aSize, mid);
-
-            // 2. Pass the object directly. 
-            // Javalin/Jackson will serialize the current state of this object.
-            for (SseClient client : clients) {
-                try {
-                    client.sendEvent("quote", reusableUpdate);
-                } catch (Exception e) {
-                    clients.remove(client);
+        if (lastPushPriceUpdateTime.getAndSet(now) != now) { // Simple atomic gate
+            synchronized (reusableQuoteUpdate) {
+                reusableQuoteUpdate.update(bid, bSize, ask, aSize, mid);
+                for (SseClient client : pricingengineclients) {
+                    client.sendEvent("quote", reusableQuoteUpdate);
                 }
             }
         }
     }
+
+    /**
+     * Pushes signal updates to /signal
+     */
+    public void pushSignalUpdate(double signal) {
+        if (signalclients.isEmpty()) return;
+
+        long now = System.nanoTime();
+        if (now - lastPushSignalUpdateTime.get() < intervalNanos) return;
+
+        if (lastPushSignalUpdateTime.getAndSet(now) != now) {
+            synchronized (reusableSignalUpdate) {
+                reusableSignalUpdate.update(signal);
+                for (SseClient client : signalclients) {
+                    client.sendEvent("signal", reusableSignalUpdate);
+                }
+            }
+        }
+    }
+    
     /**
      * Broadcast OMS/TCA data (Orders, Fills, Parent/Child links)
      */
     public void pushOrderUpdate(Object data) {
-        broadcast("order_event", data);
+        //broadcast("order_event", data);
     }
 
     /**
      * Broadcast PnL & Performance metrics
      */
     public void pushTcaUpdate(Object data) {
-        broadcast("pnl_update", data);
+        //broadcast("pnl_update", data);
     }
 
     private void broadcast(String eventName, Object data) {
-        for (SseClient client : clients) {
-            client.sendEvent(eventName, data);
-        }
+        //for (SseClient client : clients) {
+        //    client.sendEvent(eventName, data);
+        //}
     }
 
     public void stop() {
@@ -90,12 +109,19 @@ public class GatewayService {
 
 }
 
+class SignalUpdate {
+	private double signal;
+	public SignalUpdate() {}
+	public void update(double signal) { this.signal = signal; }
+	public double getSignal() { return this.signal; }
+}
+
 class QuoteUpdate {
-    public double bid;
-    public int bidSize;
-    public double ask;
-    public int askSize;
-    public double mid;
+    private double bid;
+    private int bidSize;
+    private double ask;
+    private int askSize;
+    private double mid;
 
     // Standard constructor or empty constructor
     public QuoteUpdate() {}
@@ -107,4 +133,10 @@ class QuoteUpdate {
         this.askSize = askSize;
         this.mid = mid;
     }
+    
+    public double getBid() { return this.bid; }
+    public int getBidSize() { return this.bidSize; }
+    public double getAsk() { return this.ask; }
+    public int getAskSize() { return this.askSize; }
+    public double getMid() { return this.mid; }
 }
