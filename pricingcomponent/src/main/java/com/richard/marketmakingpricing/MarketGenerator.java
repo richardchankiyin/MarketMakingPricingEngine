@@ -19,10 +19,10 @@ public class MarketGenerator {
     private double refPrice = 100.00;
     private final double vol = 0.02;
 
-    public MarketGenerator() {
-        this.aggregator = new PriceAggregator();
-        this.signalEmitter = new SignalEmitter();
-        this.engine = new PricingEngine(aggregator, signalEmitter, 0.01, 0.02, 0.15, 500);
+    public MarketGenerator(PriceAggregator aggregator, SignalEmitter signalEmitter, PricingEngine engine) {
+    	this.aggregator = aggregator;
+    	this.signalEmitter = signalEmitter;
+    	this.engine = engine;
 
         this.aggregator.addListener(this.signalEmitter);
         this.aggregator.addListener(this.engine);
@@ -89,7 +89,10 @@ public class MarketGenerator {
     }
     
     public static void main(String[] args) throws InterruptedException {
-    	MarketGenerator mg = new MarketGenerator();
+    	PriceAggregator aggregator = new PriceAggregator();
+    	SignalEmitter signalEmitter = new SignalEmitter();
+    	
+    	MarketGenerator mg = new MarketGenerator(aggregator, signalEmitter, new PricingEngine(aggregator, signalEmitter, 0.01, 0.02, 0.15, 500));
     	// Add this to see the final prices produced by the engine!
     	mg.addMarketUpdateListener((bid, bSize, ask, aSize, vwapBid, vwapAsk)-> {
     		log.info("&&&&&&MarketUpdate bid {} - {} | ask {} - {} | vwap bid {} ask {}", bid, bSize, ask, aSize, vwapBid, vwapAsk);
