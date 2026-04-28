@@ -9,6 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class GatewayService {
+	private final QuoteUpdate reusableUpdate = new QuoteUpdate();
     private static final Logger log = LoggerFactory.getLogger(GatewayService.class);
     private final Javalin app;
     private final ConcurrentLinkedQueue<SseClient> clients = new ConcurrentLinkedQueue<>();
@@ -49,15 +50,14 @@ public class GatewayService {
 
         // Try to update the timestamp. If another thread beat us to it, we skip.
         if (lastPushPriceUpdateTime.compareAndSet(last, now)) {
-            // Primitive-to-String conversion happens ONLY when we pass the gate
-            String json = String.format(
-                "{\"bid\": %.4f, \"bidSize\": %d, \"ask\": %.4f, \"askSize\": %d, \"mid\": %.4f}",
-                bid, bSize, ask, aSize, mid
-            );
+        	// 1. Update the mutable object's state
+            reusableUpdate.update(bid, bSize, ask, aSize, mid);
 
+            // 2. Pass the object directly. 
+            // Javalin/Jackson will serialize the current state of this object.
             for (SseClient client : clients) {
                 try {
-                    client.sendEvent("quote", json);
+                    client.sendEvent("quote", reusableUpdate);
                 } catch (Exception e) {
                     clients.remove(client);
                 }
@@ -86,5 +86,25 @@ public class GatewayService {
 
     public void stop() {
         app.stop();
+    }
+
+}
+
+class QuoteUpdate {
+    public double bid;
+    public int bidSize;
+    public double ask;
+    public int askSize;
+    public double mid;
+
+    // Standard constructor or empty constructor
+    public QuoteUpdate() {}
+
+    public void update(double bid, int bidSize, double ask, int askSize, double mid) {
+        this.bid = bid;
+        this.bidSize = bidSize;
+        this.ask = ask;
+        this.askSize = askSize;
+        this.mid = mid;
     }
 }
