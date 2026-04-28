@@ -37,7 +37,7 @@ public class PricingEngine implements MarketUpdateListener, SignalListener {
         this.quoteSize = quoteSize;
 
         this.aggregator.addListener(this);
-        this.signalEmitter.setListener(this);
+        this.signalEmitter.addListener(this);
     }
 
     public void addListener(PricingListener listener) {

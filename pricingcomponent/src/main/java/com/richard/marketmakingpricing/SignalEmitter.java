@@ -1,12 +1,15 @@
 package com.richard.marketmakingpricing;
 
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class SignalEmitter implements MarketUpdateListener {
 
     private final AtomicLong lastSignalBits = new AtomicLong(Double.doubleToRawLongBits(0.0));
-    private final double changeThreshold;
-    private SignalListener listener;
+    private final double changeThreshold;    
+
+    private final List<SignalListener> listeners = new CopyOnWriteArrayList<>();
 
     public SignalEmitter() {
         this(0.001);
@@ -16,8 +19,8 @@ public class SignalEmitter implements MarketUpdateListener {
         this.changeThreshold = changeThreshold;
     }
 
-    public void setListener(SignalListener listener) {
-        this.listener = listener;
+    public void addListener(SignalListener listener) {
+        this.listeners.add(listener);
     }
 
     @Override
@@ -54,8 +57,8 @@ public class SignalEmitter implements MarketUpdateListener {
             }
 
             if (lastSignalBits.compareAndSet(currentBits, Double.doubleToRawLongBits(newSignal))) {
-                if (listener != null) {
-                    listener.onSignalChange(newSignal);
+                for (SignalListener sl: listeners) {
+                    sl.onSignalChange(newSignal);
                 }
                 break;
             }

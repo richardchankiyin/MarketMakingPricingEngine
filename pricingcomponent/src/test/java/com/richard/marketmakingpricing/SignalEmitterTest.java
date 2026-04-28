@@ -22,7 +22,7 @@ public class SignalEmitterTest {
     void setUp() {
         signalEmitter = new SignalEmitter();
         mockListener = mock(SignalListener.class);
-        signalEmitter.setListener(mockListener);
+        signalEmitter.addListener(mockListener);
     }
 
     @Test
@@ -80,7 +80,7 @@ public class SignalEmitterTest {
         // GIVEN: A high threshold of 0.5
         SignalEmitter emitter = new SignalEmitter(0.5);
         SignalListener mockListener = mock(SignalListener.class);
-        emitter.setListener(mockListener);
+        emitter.addListener(mockListener);
 
         // Baseline: Signal is 0.0
         emitter.onBookUpdate(100.0, 100, 101.0, 100, 100.0, 101.0);
@@ -107,7 +107,7 @@ public class SignalEmitterTest {
     void testDefaultThreshold() {
         SignalEmitter emitter = new SignalEmitter(); // Uses 0.001
         SignalListener mockListener = mock(SignalListener.class);
-        emitter.setListener(mockListener);
+        emitter.addListener(mockListener);
 
         // mid = 100.5
         // bidUrgency = 100.5 - 100.4 = 0.1
