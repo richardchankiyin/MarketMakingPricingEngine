@@ -1,9 +1,13 @@
 package com.richard.marketmakingpricing;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.util.Random;
 import java.util.concurrent.*;
 
 public class MarketGenerator {
+    private static final Logger log = LoggerFactory.getLogger(MarketGenerator.class);
+
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
     private final ExecutorService lpPool = Executors.newFixedThreadPool(12);
     private final Random random = new Random();
@@ -18,12 +22,61 @@ public class MarketGenerator {
     public MarketGenerator() {
         this.aggregator = new PriceAggregator();
         this.signalEmitter = new SignalEmitter();
-        
-        // 1. Engine listens to Aggregator (Market Data) and SignalEmitter (Alpha)
         this.engine = new PricingEngine(aggregator, signalEmitter, 0.01, 0.02, 0.15, 500);
+
+        this.aggregator.addListener(this.signalEmitter);
+        this.aggregator.addListener(this.engine);
         
-        // 2. SignalEmitter listens to Aggregator to generate signal from price
-        this.aggregator.addListener(signalEmitter);
-        this.aggregator.addListener(engine);
+        log.info("MarketGenerator initialized. Mid: {}", refPrice);
+    }
+
+    public void startSimulation() {
+        log.info("Starting Market Simulation...");
+        scheduler.scheduleAtFixedRate(this::tick, 0, 100, TimeUnit.MILLISECONDS);
+    }
+
+    private void tick() {
+        try {
+            refPrice += (random.nextDouble() - 0.5) * vol;
+            log.debug("Market Mid Move: {}", refPrice);
+
+            for (int i = 1; i <= 12; i++) {
+                final String lpId = "LP_" + i;
+                lpPool.submit(() -> {
+                    double lpSpread = 0.02 + (random.nextDouble() * 0.04);
+                    double lpBid = refPrice - (lpSpread / 2.0);
+                    double lpAsk = refPrice + (lpSpread / 2.0);
+                    int lpSize = 200 + random.nextInt(800);
+
+                    // Logging the LP injection
+                    log.trace("{} updated: [{:.4f} @ {} | {:.4f} @ {}]", 
+                              lpId, lpBid, lpSize, lpAsk, lpSize);
+
+                    aggregator.onUpdate(lpId, lpBid, lpSize, lpAsk, lpSize);
+                });
+            }
+        } catch (Exception e) {
+            log.error("Critical error in simulation tick", e);
+        }
+    }
+
+    public void stopSimulation() {
+        log.info("Stopping Market simulation...");
+        scheduler.shutdown();
+        lpPool.shutdown();
+        log.info("Market simulation stopped.");
+    }
+
+    public PricingEngine getEngine() { return engine; }
+    
+    public static void main(String[] args) throws InterruptedException {
+    	MarketGenerator mg = new MarketGenerator();
+    	// Add this to see the final prices produced by the engine!
+        mg.getEngine().addListener((bid, bSize, ask, aSize, iBid, iAsk) -> {
+            LoggerFactory.getLogger("OUT").info("QUOTE: Bid {} | Ask {}", bid, ask);
+        });
+    	mg.startSimulation();
+    	Thread.sleep(30000);
+    	mg.stopSimulation();
     }
 }
