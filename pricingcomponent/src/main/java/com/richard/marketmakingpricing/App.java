@@ -12,7 +12,7 @@ public class App {
         SignalEmitter signalEmitter = new SignalEmitter();
         
         // 2. Initialize the Gateway (Javalin Server)
-        GatewayService gateway = new GatewayService(7070);
+        GatewayService gateway = new GatewayService(7070, 500);
 
         // 3. Initialize the Engine
         // Params: Aggregator, SignalSource, Tick, Margin, Skew, Size
@@ -24,9 +24,7 @@ public class App {
         // 5. Wire Engine Output to the Gateway
         // We wrap the primitives into a simple Record or Map for JSON conversion
         engine.addListener((bid, bSize, ask, aSize, iBid, iAsk) -> {
-        	//log.info(">>>>>>PricingEngine QUOTE: Bid {} | Ask {}", bid, ask);
-            QuoteUpdate update = new QuoteUpdate(bid, bSize, ask, aSize, (iBid + iAsk) / 2.0);
-            gateway.pushPriceUpdate(update);
+        	gateway.pushPriceUpdate(bid, bSize, ask, aSize, (iBid + iAsk) / 2.0);
         });
 
         // 6. Graceful Shutdown Hook for Linux
@@ -41,6 +39,4 @@ public class App {
         generator.startSimulation();
     }
 
-    // Simple DTO for JSON Marshalling
-    public record QuoteUpdate(double bid, int bidSize, double ask, int askSize, double mid) {}
 }
