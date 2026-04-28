@@ -21,7 +21,11 @@ public class App {
         // 4. Initialize the Market Generator
         MarketGenerator generator = new MarketGenerator(aggregator, signalEmitter, engine);
 
-        // 5. Wire Signal/Engine Output to the Gateway
+        // 5. Wire LQQuote/Signal/Engine Output to the Gateway
+        generator.addListener((lpId, refPrice, bid, bSize, ask, aSize)->{
+        	gateway.pushLPUpdate(lpId, refPrice, bid, bSize, ask, aSize);        	
+        });
+        
         signalEmitter.addListener((signal)->{
         	gateway.pushSignalUpdate(signal);
         });        

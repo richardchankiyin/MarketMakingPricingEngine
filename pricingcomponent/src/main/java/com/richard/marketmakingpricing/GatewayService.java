@@ -9,14 +9,17 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class GatewayService {
+	private final LPUpdate reusableLPUpdate = new LPUpdate();
 	private final QuoteUpdate reusableQuoteUpdate = new QuoteUpdate();
 	private final SignalUpdate reusableSignalUpdate = new SignalUpdate();
     private static final Logger log = LoggerFactory.getLogger(GatewayService.class);
     private final Javalin app;
+    private final ConcurrentLinkedQueue<SseClient> lpclients = new ConcurrentLinkedQueue<>();
     private final ConcurrentLinkedQueue<SseClient> pricingengineclients = new ConcurrentLinkedQueue<>();
     private final ConcurrentLinkedQueue<SseClient> signalclients = new ConcurrentLinkedQueue<>();
     
     private final long intervalNanos;
+    private final AtomicLong lastPushLPUpdateTime = new AtomicLong(0);
     private final AtomicLong lastPushPriceUpdateTime = new AtomicLong(0);    
     private final AtomicLong lastPushSignalUpdateTime = new AtomicLong(0);
 
@@ -25,6 +28,13 @@ public class GatewayService {
         this.intervalNanos = intervalMs * 1_000_000L;
         
     	app = Javalin.create(config -> {
+    		config.routes.sse("/lpquote", client -> {
+    		    client.keepAlive();
+    		    client.onClose(() -> lpclients.remove(client));
+    		    lpclients.add(client);
+    		    client.sendEvent("info", "Welcome to Gateway LPQuote");    			
+    		});
+    		
     		config.routes.sse("/priceengine", client -> {
     		    client.keepAlive();
     		    client.onClose(() -> pricingengineclients.remove(client));
@@ -41,6 +51,25 @@ public class GatewayService {
     				
     	}).start(port);
         
+    }
+    
+    /**
+     * Pushes price updates to /lpquote
+     */
+    public void pushLPUpdate(String lpId, double ref, double bid, int bS, double ask, int aS) {
+        if (lpclients.isEmpty()) return;
+
+        long now = System.nanoTime();
+        if (now - lastPushLPUpdateTime.get() < intervalNanos) return;
+
+        if (lastPushLPUpdateTime.getAndSet(now) != now) {
+            synchronized (reusableLPUpdate) {
+                reusableLPUpdate.update(lpId, ref, bid, bS, ask, aS);
+                for (SseClient client : lpclients) {
+                    client.sendEvent("lp_quote", reusableLPUpdate);
+                }
+            }
+        }
     }
 
     
@@ -108,6 +137,46 @@ public class GatewayService {
     }
 
 }
+
+class LPUpdate {
+    private String lpId;
+    private double refPrice;
+    private double bid;
+    private int bidSize;
+    private double ask;
+    private int askSize;
+
+    public void update(String id, double ref, double b, int bS, double a, int aS) {
+        this.lpId = id; this.refPrice = ref; this.bid = b; 
+        this.bidSize = bS; this.ask = a; this.askSize = aS;
+    }
+    // Getters for Jackson...
+
+	public String getLpId() {
+		return lpId;
+	}
+
+	public double getRefPrice() {
+		return refPrice;
+	}
+
+	public double getBid() {
+		return bid;
+	}
+
+	public int getBidSize() {
+		return bidSize;
+	}
+
+	public double getAsk() {
+		return ask;
+	}
+
+	public int getAskSize() {
+		return askSize;
+	}
+}
+
 
 class SignalUpdate {
 	private double signal;

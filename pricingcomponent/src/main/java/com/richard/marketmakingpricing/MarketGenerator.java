@@ -2,10 +2,13 @@ package com.richard.marketmakingpricing;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.List;
 import java.util.Random;
 import java.util.concurrent.*;
 
 public class MarketGenerator {
+	private final List<LPQuoteListener> lpListeners = new CopyOnWriteArrayList<>();
     private static final Logger log = LoggerFactory.getLogger(MarketGenerator.class);
 
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
@@ -30,6 +33,10 @@ public class MarketGenerator {
         log.info("MarketGenerator initialized. Mid: {}", refPrice);
     }
 
+    public void addListener(LPQuoteListener listener) {
+        this.lpListeners.add(listener);
+    }    
+    
     //TODO below tick sending to be parameterized
     public void startSimulation() {
         log.info("Starting Market Simulation...");
@@ -53,6 +60,10 @@ public class MarketGenerator {
                     // Logging the LP injection
                     log.trace("{} updated: [{} @ {} | {} @ {}]", 
                               lpId, lpBid, lpSize, lpAsk, lpSize);
+                    
+                    for (LPQuoteListener l : lpListeners) {
+                        l.onLPUpdate(lpId, refPrice, lpBid, lpSize, lpAsk, lpSize);
+                    }
 
                     aggregator.onUpdate(lpId, lpBid, lpSize, lpAsk, lpSize);
                 });
