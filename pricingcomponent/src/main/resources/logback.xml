@@ -11,7 +11,7 @@
         <discardingThreshold>0</discardingThreshold>
     </appender>
 
-    <root level="TRACE">
+    <root level="DEBUG">
         <appender-ref ref="ASYNC" />
     </root>
 </configuration>

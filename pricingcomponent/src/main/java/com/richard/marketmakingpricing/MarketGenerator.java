@@ -30,11 +30,13 @@ public class MarketGenerator {
         log.info("MarketGenerator initialized. Mid: {}", refPrice);
     }
 
+    //TODO below tick sending to be parameterized
     public void startSimulation() {
         log.info("Starting Market Simulation...");
         scheduler.scheduleAtFixedRate(this::tick, 0, 10, TimeUnit.MILLISECONDS);
     }
 
+    //TODO below to be refactored to be parameterized
     private void tick() {
         try {
             refPrice += (random.nextDouble() - 0.5) * vol;
