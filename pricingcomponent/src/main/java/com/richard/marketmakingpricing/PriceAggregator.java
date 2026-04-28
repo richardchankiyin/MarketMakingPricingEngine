@@ -99,7 +99,7 @@ public class PriceAggregator {
         }
         double vwapAsk = totalAskVolume == 0 ? 0 : totalAskValue / totalAskVolume;
 
-        // CHANGED: Broadcast to the entire list of listeners
+        //  Broadcast to the entire list of listeners
         for (MarketUpdateListener l : listeners) {
             l.onBookUpdate(bestBid, topBidSize, bestAsk, topAskSize, vwapBid, vwapAsk);
         }
