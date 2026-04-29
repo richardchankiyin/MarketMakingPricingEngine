@@ -2,10 +2,13 @@ package com.richard.marketmakingpricing;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.List;
 import java.util.Random;
 import java.util.concurrent.*;
 
 public class MarketGenerator {
+	private final List<LPQuoteListener> lpListeners = new CopyOnWriteArrayList<>();
     private static final Logger log = LoggerFactory.getLogger(MarketGenerator.class);
 
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
@@ -19,10 +22,10 @@ public class MarketGenerator {
     private double refPrice = 100.00;
     private final double vol = 0.02;
 
-    public MarketGenerator() {
-        this.aggregator = new PriceAggregator();
-        this.signalEmitter = new SignalEmitter();
-        this.engine = new PricingEngine(aggregator, signalEmitter, 0.01, 0.02, 0.15, 500);
+    public MarketGenerator(PriceAggregator aggregator, SignalEmitter signalEmitter, PricingEngine engine) {
+    	this.aggregator = aggregator;
+    	this.signalEmitter = signalEmitter;
+    	this.engine = engine;
 
         this.aggregator.addListener(this.signalEmitter);
         this.aggregator.addListener(this.engine);
@@ -30,6 +33,10 @@ public class MarketGenerator {
         log.info("MarketGenerator initialized. Mid: {}", refPrice);
     }
 
+    public void addListener(LPQuoteListener listener) {
+        this.lpListeners.add(listener);
+    }    
+    
     //TODO below tick sending to be parameterized
     public void startSimulation() {
         log.info("Starting Market Simulation...");
@@ -53,6 +60,10 @@ public class MarketGenerator {
                     // Logging the LP injection
                     log.trace("{} updated: [{} @ {} | {} @ {}]", 
                               lpId, lpBid, lpSize, lpAsk, lpSize);
+                    
+                    for (LPQuoteListener l : lpListeners) {
+                        l.onLPUpdate(lpId, refPrice, lpBid, lpSize, lpAsk, lpSize);
+                    }
 
                     aggregator.onUpdate(lpId, lpBid, lpSize, lpAsk, lpSize);
                 });
@@ -89,7 +100,10 @@ public class MarketGenerator {
     }
     
     public static void main(String[] args) throws InterruptedException {
-    	MarketGenerator mg = new MarketGenerator();
+    	PriceAggregator aggregator = new PriceAggregator();
+    	SignalEmitter signalEmitter = new SignalEmitter();
+    	
+    	MarketGenerator mg = new MarketGenerator(aggregator, signalEmitter, new PricingEngine(aggregator, signalEmitter, 0.01, 0.02, 0.15, 500));
     	// Add this to see the final prices produced by the engine!
     	mg.addMarketUpdateListener((bid, bSize, ask, aSize, vwapBid, vwapAsk)-> {
     		log.info("&&&&&&MarketUpdate bid {} - {} | ask {} - {} | vwap bid {} ask {}", bid, bSize, ask, aSize, vwapBid, vwapAsk);
