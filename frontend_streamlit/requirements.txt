@@ -1,0 +1,16 @@
+# Web Frontend Framework
+streamlit==1.32.0
+
+# SSE (Server-Sent Events) Client
+# Used to subscribe to /priceengine, /signal, and /aggregator
+sseclient-py==1.8.0
+
+# Data Manipulation & Math
+pandas==2.2.1
+numpy==1.26.4
+
+# Networking
+requests==2.31.0
+
+# Optional: For future API interactions or OMS management
+urllib3==2.2.1
