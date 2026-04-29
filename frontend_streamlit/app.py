@@ -13,20 +13,18 @@ from streamlit.runtime.scriptrunner import add_script_run_ctx
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# 2. State Initialization (Including Sizes)
+# 2. State Initialization
 if 'price_history' not in st.session_state:
-    # Adding bidSize and askSize to the schema
-    st.session_state.price_history = pd.DataFrame(
-        columns=['time', 'bid', 'bidSize', 'ask', 'askSize', 'mid']
-    )
+    st.session_state.price_history = pd.DataFrame(columns=['time', 'bid', 'bidSize', 'ask', 'askSize', 'mid'])
 if 'signal_val' not in st.session_state:
     st.session_state.signal_val = 0.0
-if 'lp_quote' not in st.session_state:
-    st.session_state.lp_quote = {}
+# Changed to a dict to store multiple LPs by their ID
+if 'lp_latest_map' not in st.session_state:
+    st.session_state.lp_latest_map = {} 
 if 'threads_initialized' not in st.session_state:
     st.session_state.threads_initialized = False
 
-# 3. Worker (Capturing All Fields)
+# 3. Worker (Updated LP logic)
 def sse_worker(url, state_key):
     headers = {"Accept": "text/event-stream", "Cache-Control": "no-cache"}
     while True:
@@ -37,10 +35,11 @@ def sse_worker(url, state_key):
                 if msg.data and msg.data.startswith('{'):
                     try:
                         data = json.loads(msg.data)
+                        timestamp = datetime.now().strftime('%H:%M:%S.%f')[:-3]
                         
                         if state_key == 'price_data':
                             new_entry = {
-                                'time': datetime.now().strftime('%H:%M:%S.%f')[:-3],
+                                'time': timestamp,
                                 'bid': data.get('bid', 0.0),
                                 'bidSize': data.get('bidSize', 0),
                                 'ask': data.get('ask', 0.0),
@@ -54,7 +53,17 @@ def sse_worker(url, state_key):
                             st.session_state.signal_val = data.get('signal', 0.0)
                             
                         elif state_key == 'lp':
-                            st.session_state.lp_quote = data
+                            # Store/Update by LP ID
+                            lp_id = data.get('lpId', 'Unknown')
+                            st.session_state.lp_latest_map[lp_id] = {
+                                'LP ID': lp_id,
+                                'Last Update': timestamp,
+                                'Ref Price': data.get('refPrice', 0.0),
+                                'Bid': data.get('bid', 0.0),
+                                'BidSize': data.get('bidSize', 0),
+                                'Ask': data.get('ask', 0.0),
+                                'AskSize': data.get('askSize', 0)
+                            }
                     except:
                         continue
         except Exception as e:
@@ -75,33 +84,33 @@ if not st.session_state.threads_initialized:
     st.session_state.threads_initialized = True
 
 # 5. UI Layout
-st.set_page_config(page_title="Price Engine Monitor", layout="wide")
-st.title("🛡️ Price Engine Dashboard")
+st.set_page_config(page_title="LP & Pricing Monitor", layout="wide")
+st.title("🛡️ LP Liquidity & Pricing Monitor")
 
-# Snapshots
-prices_snap = st.session_state.price_history.copy()
-lp_snap = st.session_state.lp_quote.copy()
+# --- SECTION A: LP Latest Quotes Table ---
+st.subheader("Latest LP Quotes (Level 1)")
+if st.session_state.lp_latest_map:
+    # Convert the map to a DataFrame for tabular display
+    lp_df = pd.DataFrame(st.session_state.lp_latest_map.values())
+    st.dataframe(lp_df, use_container_width=True, hide_index=True)
+else:
+    st.info("Awaiting LP Quotes...")
 
-# Row 1: The Table (Hiding the index column)
-st.subheader("Internal Price Engine Stream")
-st.dataframe(
-    prices_snap, 
-    use_container_width=True, 
-    hide_index=True  # THIS REMOVES THE ODD ZERO COLUMN
-)
-
-# Row 2: Diagnostics
 st.divider()
-c1, c2 = st.columns([1, 1])
-with c1:
-    st.subheader("Raw LP JSON (Diagnostic)")
-    st.json(lp_snap) 
-with c2:
+
+# --- SECTION B: Internal Pricing & Signal ---
+col_left, col_right = st.columns([2, 1])
+
+with col_left:
+    st.subheader("Internal Price Engine (Audit Log)")
+    prices_snap = st.session_state.price_history.copy()
+    st.dataframe(prices_snap, use_container_width=True, hide_index=True)
+
+with col_right:
     st.subheader("Metrics")
     st.metric("Alpha Signal Skew", f"{st.session_state.signal_val:.4f}")
-    if lp_snap:
-        st.write(f"**Source LP:** {lp_snap.get('lpId', 'Unknown')}")
+    st.write(f"Active LPs: {len(st.session_state.lp_latest_map)}")
 
-# 6. Auto-Refresh
+# 6. Refresh
 time.sleep(1)
 st.rerun()
