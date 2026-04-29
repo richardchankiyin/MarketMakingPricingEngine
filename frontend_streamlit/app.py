@@ -6,13 +6,13 @@ import requests
 import time
 import logging
 from sseclient import SSEClient
-# Correct import path for Streamlit 1.32.0
 from streamlit.runtime.scriptrunner import add_script_run_ctx
 
+# 1. Logging Setup
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# 1. Init State
+# 2. State Initialization
 if 'price_history' not in st.session_state:
     st.session_state.price_history = pd.DataFrame(columns=['bid', 'ask', 'mid'])
 if 'signal_val' not in st.session_state:
@@ -22,58 +22,64 @@ if 'lp_quote' not in st.session_state:
 if 'threads_initialized' not in st.session_state:
     st.session_state.threads_initialized = False
 
-# 2. Worker (No changes needed here, logic is sound)
+# 3. Worker (Unchanged logic, just feeds the state)
 def sse_worker(url, state_key):
     headers = {"Accept": "text/event-stream", "Cache-Control": "no-cache"}
-    try:
-        response = requests.get(url, headers=headers, stream=True, timeout=(5, None))
-        client = SSEClient(response)
-        for msg in client.events():
-            if msg.data and msg.data.startswith('{'):
-                data = json.loads(msg.data)
-                # Now st.session_state will be visible thanks to the context bridge
-                if state_key == 'price_data':
-                    new_row = pd.DataFrame([{'bid': data['bid'], 'ask': data['ask'], 'mid': data['mid']}])
-                    st.session_state.price_history = pd.concat([st.session_state.price_history, new_row]).tail(20)
-                elif state_key == 'signal':
-                    st.session_state.signal_val = data.get('signal', 0.0)
-                elif state_key == 'lp':
-                    st.session_state.lp_quote = data
-    except Exception as e:
-        logger.error(f"Error in {state_key}: {e}")
+    while True:
+        try:
+            response = requests.get(url, headers=headers, stream=True, timeout=(5, None))
+            client = SSEClient(response)
+            for msg in client.events():
+                if msg.data and msg.data.startswith('{'):
+                    try:
+                        data = json.loads(msg.data)
+                        if state_key == 'price_data':
+                            new_row = pd.DataFrame([data])
+                            st.session_state.price_history = pd.concat([st.session_state.price_history, new_row]).tail(10)
+                        elif state_key == 'signal':
+                            st.session_state.signal_val = data.get('signal', 0.0)
+                        elif state_key == 'lp':
+                            st.session_state.lp_quote = data
+                    except:
+                        continue
+        except Exception as e:
+            logger.error(f"Stream {state_key} error: {e}")
+            time.sleep(2)
 
-# 3. Thread Launcher with Context Bridge
+# 4. Thread Launcher
 if not st.session_state.threads_initialized:
     endpoints = [
         ('http://127.0.0.1:7070/priceengine', 'price_data'),
         ('http://127.0.0.1:7070/signal', 'signal'),
         ('http://127.0.0.1:7070/lpquote', 'lp')
     ]
-    
     for url, key in endpoints:
         t = threading.Thread(target=sse_worker, args=(url, key), daemon=True)
-        # --- CRITICAL STEP ---
-        # This attaches the thread to the current browser session context
-        add_script_run_ctx(t) 
-        # ---------------------
+        add_script_run_ctx(t)
         t.start()
-    
     st.session_state.threads_initialized = True
-    logger.info("Threads tethered to ScriptRunContext successfully.")
 
-# 4. UI Layout
-st.title("🛡️ Alpha Pricing Monitor")
+# 5. UI - Tabular Layout
+st.set_page_config(page_title="Data Verify", layout="wide")
+st.title("🛡️ Data Verification (Tabular)")
 
-# Display LP Info
-if st.session_state.lp_quote:
-    lp = st.session_state.lp_quote
-    st.write(f"**LP Feed:** {lp.get('lpId')} | **Ref:** {lp.get('refPrice')}")
+# Snapshots to prevent mid-render mutation
+prices_snap = st.session_state.price_history.copy()
+lp_snap = st.session_state.lp_quote.copy()
+sig_snap = st.session_state.signal_val
 
-# Display Chart
-if not st.session_state.price_history.empty:
-    st.line_chart(st.session_state.price_history[['bid', 'ask', 'mid']])
+col1, col2 = st.columns(2)
 
-st.metric("Signal", f"{st.session_state.signal_val:.4f}")
+with col1:
+    st.subheader("Price Engine (Latest 10)")
+    st.dataframe(prices_snap, use_container_width=True)
 
+with col2:
+    st.subheader("Signal & LP State")
+    st.metric("Signal Skew", f"{sig_snap:.4f}")
+    st.write("Latest LP Quote JSON:")
+    st.json(lp_snap)
+
+# 6. Auto-Refresh
 time.sleep(1)
 st.rerun()
