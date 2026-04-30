@@ -13,5 +13,5 @@ public interface MarketUpdateListener {
      * @param vwapBid Volume-weighted average price of all bids
      * @param vwapAsk Volume-weighted average price of all asks
      */
-    void onBookUpdate(double bid, int bSize, double ask, int aSize, double vwapBid, double vwapAsk);
+    void onSummaryUpdate(double bid, int bSize, double ask, int aSize, double vwapBid, double vwapAsk);
 }

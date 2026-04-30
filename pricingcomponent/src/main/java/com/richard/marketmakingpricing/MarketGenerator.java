@@ -21,14 +21,17 @@ public class MarketGenerator {
 
     private double refPrice = 100.00;
     private final double vol = 0.02;
+    
+    private static final int NOOFLP = 12;
+    
 
     public MarketGenerator(PriceAggregator aggregator, SignalEmitter signalEmitter, PricingEngine engine) {
     	this.aggregator = aggregator;
     	this.signalEmitter = signalEmitter;
     	this.engine = engine;
 
-        this.aggregator.addListener(this.signalEmitter);
-        this.aggregator.addListener(this.engine);
+        this.aggregator.addMarketListener(this.signalEmitter);
+        this.aggregator.addMarketListener(this.engine);
         
         log.info("MarketGenerator initialized. Mid: {}", refPrice);
     }
@@ -49,7 +52,7 @@ public class MarketGenerator {
             refPrice += (random.nextDouble() - 0.5) * vol;
             log.debug("Market Mid Move: {}", refPrice);
 
-            for (int i = 1; i <= 12; i++) {
+            for (int i = 1; i <= NOOFLP; i++) {
                 final String lpId = "LP_" + i;
                 lpPool.submit(() -> {
                     double lpSpread = 0.02 + (random.nextDouble() * 0.04);
@@ -82,7 +85,7 @@ public class MarketGenerator {
 
     public void addMarketUpdateListener(MarketUpdateListener l) {
     	if (l != null) {
-    		this.aggregator.addListener(l);
+    		this.aggregator.addMarketListener(l);
     	}
     }
     
@@ -100,7 +103,7 @@ public class MarketGenerator {
     }
     
     public static void main(String[] args) throws InterruptedException {
-    	PriceAggregator aggregator = new PriceAggregator();
+    	PriceAggregator aggregator = new PriceAggregator(NOOFLP);
     	SignalEmitter signalEmitter = new SignalEmitter();
     	
     	MarketGenerator mg = new MarketGenerator(aggregator, signalEmitter, new PricingEngine(aggregator, signalEmitter, 0.01, 0.02, 0.15, 500));

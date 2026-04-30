@@ -4,46 +4,67 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.locks.ReentrantLock;
 
+/**
+ * PriceAggregator maintains a consolidated view of liquidity from multiple LPs.
+ * It decouples light-weight summary broadcasts from heavy-weight full-book snapshots
+ * to optimize for both the Pricing Engine and the OMS.
+ */
 public class PriceAggregator {
-    private final List<MarketUpdateListener> listeners = new CopyOnWriteArrayList<>();
+    // MarketUpdateListeners receive L1 + VWAP (Low bandwidth)
+    private final List<MarketUpdateListener> marketListeners = new CopyOnWriteArrayList<>();
+    // OrderBookUpdateListeners receive full deep-cloned snapshots (High bandwidth)
+    private final List<OrderBookUpdateListener> bookListeners = new CopyOnWriteArrayList<>();
+    
+    // ConcurrentSkipListMap ensures price-sorting (Natural order for asks, reverse for bids)
     private final NavigableMap<Double, Map<String, Integer>> bids = new ConcurrentSkipListMap<>(Collections.reverseOrder());
     private final NavigableMap<Double, Map<String, Integer>> asks = new ConcurrentSkipListMap<>();
+    
+    // Registry to track the "previous" state of an LP to facilitate liquidity removal
     private final Map<String, LPQuoteRecord> lpRegistry;
     
     private final ReentrantLock lock = new ReentrantLock();
     private final int lpCount;
     private static final int ONUPDATETRYLOCK_MS = 5;
 
-    public PriceAggregator() {
-        this(5);
-    }
-
     public PriceAggregator(int lpCount) {
         this.lpCount = lpCount;
         this.lpRegistry = new ConcurrentHashMap<>(lpCount);
     }
 
-    public void addListener(MarketUpdateListener listener) {
-        this.listeners.add(listener);
+    public void addMarketListener(MarketUpdateListener listener) {
+        this.marketListeners.add(listener);
     }
 
+    public void addBookListener(OrderBookUpdateListener listener) {
+        this.bookListeners.add(listener);
+    }
+
+    /**
+     * Entry point for new LP ticks. Handles the "Remove-then-Add" logic to maintain the book.
+     */
     public void onUpdate(String lpId, double bid, int bidSize, double ask, int askSize) {
         LPQuoteRecord record = lpRegistry.computeIfAbsent(lpId, k -> new LPQuoteRecord());
 
         try {
             if (lock.tryLock(ONUPDATETRYLOCK_MS, TimeUnit.MILLISECONDS)) {
                 try {
+                    // 1. Always attempt removal of the OLD price levels first
                     if (record.hasValidPrices()) {
                         removeLiquidity(bids, record.getLastBid(), lpId);
                         removeLiquidity(asks, record.getLastAsk(), lpId);
                     }
 
-                    // Store new values
+                    // 2. IMPORTANT: Even if the price is the same, remove it from the 
+                    // current level to force a FIFO position reset
+                    bids.getOrDefault(bid, Collections.emptyMap()).remove(lpId);
+                    asks.getOrDefault(ask, Collections.emptyMap()).remove(lpId);
+
+                    // 3. Now re-insert (This guarantees LP goes to the end of the LinkedHashMap)
                     bids.computeIfAbsent(bid, k -> new LinkedHashMap<>(lpCount)).put(lpId, bidSize);
                     asks.computeIfAbsent(ask, k -> new LinkedHashMap<>(lpCount)).put(lpId, askSize);
                     
                     record.update(bid, bidSize, ask, askSize);
-                    triggerUpdate(); 
+                    triggerParallelUpdates(); 
                 } finally {
                     lock.unlock();
                 }
@@ -53,11 +74,27 @@ public class PriceAggregator {
         }
     }
 
-    private void triggerUpdate() {
-        // CHANGED: Check the 'listeners' list, not a single 'listener' field
-        if (listeners.isEmpty() || bids.isEmpty() || asks.isEmpty()) return;
+    /**
+     * Dispatches updates to listeners in parallel.
+     * Uses join() to ensure the method is synchronous, maintaining sequential data consistency.
+     */
+    private void triggerParallelUpdates() {
+        if (bids.isEmpty() || asks.isEmpty()) return;
 
-        // --- BID SIDE PASS ---
+        CompletableFuture<Void> marketTask = CompletableFuture.runAsync(this::broadcastSummary);
+        CompletableFuture<Void> bookTask = CompletableFuture.runAsync(this::broadcastFullBook);
+
+        // Blocking wait ensures the next LP tick won't overlap with current listener processing
+        CompletableFuture.allOf(marketTask, bookTask).join();
+    }
+
+    /**
+     * Calculates L1 (Best Bid/Ask) and VWAP for the Pricing Engine.
+     */
+    private void broadcastSummary() {
+        if (marketListeners.isEmpty()) return;
+
+        // Bid Side Metrics
         double bestBid = bids.firstKey();
         int topBidSize = 0;
         double totalBidValue = 0;
@@ -65,20 +102,17 @@ public class PriceAggregator {
 
         for (Map.Entry<Double, Map<String, Integer>> entry : bids.entrySet()) {
             double price = entry.getKey();
-            int levelSize = 0;
             for (Integer size : entry.getValue().values()) {
                 if (size != null) {
-                    int s = size;
-                    levelSize += s;
-                    totalBidValue += (price * s);
-                    totalBidVolume += s;
+                    if (price == bestBid) topBidSize += size;
+                    totalBidValue += (price * size);
+                    totalBidVolume += size;
                 }
             }
-            if (price == bestBid) topBidSize = levelSize;
         }
         double vwapBid = totalBidVolume == 0 ? 0 : totalBidValue / totalBidVolume;
 
-        // --- ASK SIDE PASS ---
+        // Ask Side Metrics
         double bestAsk = asks.firstKey();
         int topAskSize = 0;
         double totalAskValue = 0;
@@ -86,23 +120,42 @@ public class PriceAggregator {
 
         for (Map.Entry<Double, Map<String, Integer>> entry : asks.entrySet()) {
             double price = entry.getKey();
-            int levelSize = 0;
             for (Integer size : entry.getValue().values()) {
                 if (size != null) {
-                    int s = size;
-                    levelSize += s;
-                    totalAskValue += (price * s);
-                    totalAskVolume += s;
+                    if (price == bestAsk) topAskSize += size;
+                    totalAskValue += (price * size);
+                    totalAskVolume += size;
                 }
             }
-            if (price == bestAsk) topAskSize = levelSize;
         }
         double vwapAsk = totalAskVolume == 0 ? 0 : totalAskValue / totalAskVolume;
 
-        //  Broadcast to the entire list of listeners
-        for (MarketUpdateListener l : listeners) {
-            l.onBookUpdate(bestBid, topBidSize, bestAsk, topAskSize, vwapBid, vwapAsk);
+        for (MarketUpdateListener l : marketListeners) {
+            l.onSummaryUpdate(bestBid, topBidSize, bestAsk, topAskSize, vwapBid, vwapAsk);
         }
+    }
+
+    /**
+     * Performs a deep-copy of the book for the OMS/SOR components.
+     * This prevents ConcurrentModificationExceptions when listeners iterate the maps.
+     */
+    private void broadcastFullBook() {
+        if (bookListeners.isEmpty()) return;
+
+        NavigableMap<Double, Map<String, Integer>> bidsCopy = cloneBook(bids);
+        NavigableMap<Double, Map<String, Integer>> asksCopy = cloneBook(asks);
+
+        for (OrderBookUpdateListener l : bookListeners) {
+            l.onFullBookUpdate(bidsCopy, asksCopy);
+        }
+    }
+
+    private NavigableMap<Double, Map<String, Integer>> cloneBook(NavigableMap<Double, Map<String, Integer>> original) {
+        NavigableMap<Double, Map<String, Integer>> copy = new TreeMap<>(original.comparator());
+        for (Map.Entry<Double, Map<String, Integer>> entry : original.entrySet()) {
+            copy.put(entry.getKey(), new LinkedHashMap<>(entry.getValue()));
+        }
+        return copy;
     }
 
     private void removeLiquidity(NavigableMap<Double, Map<String, Integer>> book, double price, String lpId) {
@@ -113,48 +166,14 @@ public class PriceAggregator {
         }
     }
 
-    public double sweepBook(boolean buyFromLPs, int targetQty) {
-        NavigableMap<Double, Map<String, Integer>> side = buyFromLPs ? asks : bids;
-        int remaining = targetQty;
-        double totalCost = 0;
-
-        for (Map.Entry<Double, Map<String, Integer>> level : side.entrySet()) {
-            double price = level.getKey();
-            for (Integer qtyAtLP : level.getValue().values()) {
-                int qty = (qtyAtLP != null) ? qtyAtLP : 0;
-                int take = Math.min(remaining, qty);
-                totalCost += (take * price);
-                remaining -= take;
-                if (remaining <= 0) break;
-            }
-            if (remaining <= 0) break;
-        }
-        return (targetQty == remaining) ? 0.0 : totalCost / (targetQty - remaining);
-    }
-
     private static class LPQuoteRecord {
         private double lastBid = -1, lastAsk = -1;
-        private int lastBidSize, lastAskSize;
-        private double prevBid, prevAsk;
-        private int prevBidSize, prevAskSize;
-
         private void update(double b, int bs, double a, int as) {
-            this.prevBid = this.lastBid;
-            this.prevBidSize = this.lastBidSize;
-            this.prevAsk = this.lastAsk;
-            this.prevAskSize = this.lastAskSize;
-
             this.lastBid = b;
-            this.lastBidSize = bs;
             this.lastAsk = a;
-            this.lastAskSize = as;
         }
-        
         public double getLastBid() { return lastBid; }
         public double getLastAsk() { return lastAsk; }
         private boolean hasValidPrices() { return lastBid != -1; }
     }
-
-    public double getBestBid() { return bids.isEmpty() ? 0.0 : bids.firstKey(); }
-    public double getBestAsk() { return asks.isEmpty() ? Double.MAX_VALUE : asks.firstKey(); }
 }

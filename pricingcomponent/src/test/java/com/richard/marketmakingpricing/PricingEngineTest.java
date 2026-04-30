@@ -47,7 +47,7 @@ public class PricingEngineTest {
         });
 
         // WHEN: Market is 100.00 / 100.10 and Signal is Bearish (-1.0)
-        engine.onBookUpdate(100.00, 1000, 100.10, 1000, 100.00, 100.10);
+        engine.onSummaryUpdate(100.00, 1000, 100.10, 1000, 100.00, 100.10);
         engine.onSignalChange(-1.0);
 
         // THEN: Verify that the pushed values match the engine state
@@ -68,7 +68,7 @@ public class PricingEngineTest {
         double lpAsk = 10.02;
         
         // Signal is Bullish (+1.0)
-        engine.onBookUpdate(lpBid, 100, lpAsk, 100, lpBid, lpAsk);
+        engine.onSummaryUpdate(lpBid, 100, lpAsk, 100, lpBid, lpAsk);
         engine.onSignalChange(1.0);
 
         // THEN: We must still be able to hedge profitably
@@ -84,7 +84,7 @@ public class PricingEngineTest {
     @Test
     void testSizePropagation() {
         // WHEN: Any update occurs
-        engine.onBookUpdate(100.00, 100, 100.10, 100, 100.00, 100.10);
+        engine.onSummaryUpdate(100.00, 100, 100.10, 100, 100.00, 100.10);
 
         // THEN: The fixed quote size should be present
         assertEquals(Q_SIZE, engine.getMyBidSize());
@@ -97,7 +97,7 @@ public class PricingEngineTest {
         // Mid 100.05. Skew 0.0. Margin 0.20 (wider than LP spread)
         PricingEngine wideEngine = new PricingEngine(mockAggregator, mockSignalEmitter, 0.01, 0.20, 0.0, 100);
         
-        wideEngine.onBookUpdate(100.00, 100, 100.10, 100, 100.00, 100.10);
+        wideEngine.onSummaryUpdate(100.00, 100, 100.10, 100, 100.00, 100.10);
         
         // THEN: Bid must always be less than Ask
         assertTrue(wideEngine.getMyBid() < wideEngine.getMyAsk(), "Quotes must never be crossed");

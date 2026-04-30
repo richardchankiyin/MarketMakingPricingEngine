@@ -8,7 +8,7 @@ public class App {
 
     public static void main(String[] args) {
         // 1. Initialize Infrastructure
-        PriceAggregator aggregator = new PriceAggregator();
+        PriceAggregator aggregator = new PriceAggregator(12);
         SignalEmitter signalEmitter = new SignalEmitter();
         
         // 2. Initialize the Gateway (Javalin Server)
