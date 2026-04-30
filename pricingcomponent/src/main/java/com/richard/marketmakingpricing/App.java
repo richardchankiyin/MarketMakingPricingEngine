@@ -28,11 +28,16 @@ public class App {
         
         signalEmitter.addListener((signal)->{
         	gateway.pushSignalUpdate(signal);
-        });        
+        });
+        
         engine.addListener((bid, bSize, ask, aSize, iBid, iAsk) -> {
         	gateway.pushPriceUpdate(bid, bSize, ask, aSize, (iBid + iAsk) / 2.0);
         });
-
+        
+        aggregator.addBookListener((bid,ask)->{
+        	gateway.pushFullBookUpdate(bid, ask);
+        });
+        
         // 6. Graceful Shutdown Hook for Linux
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             log.info("System shutting down...");

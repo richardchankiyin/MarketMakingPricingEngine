@@ -2,6 +2,9 @@ package com.richard.marketmakingpricing;
 
 import io.javalin.Javalin;
 import io.javalin.http.sse.SseClient;
+
+import java.util.Map;
+import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -12,16 +15,19 @@ public class GatewayService {
 	private final LPUpdate reusableLPUpdate = new LPUpdate();
 	private final QuoteUpdate reusableQuoteUpdate = new QuoteUpdate();
 	private final SignalUpdate reusableSignalUpdate = new SignalUpdate();
+	private final FullBookUpdate reusableBookUpdate = new FullBookUpdate();
     private static final Logger log = LoggerFactory.getLogger(GatewayService.class);
     private final Javalin app;
     private final ConcurrentLinkedQueue<SseClient> lpclients = new ConcurrentLinkedQueue<>();
     private final ConcurrentLinkedQueue<SseClient> pricingengineclients = new ConcurrentLinkedQueue<>();
     private final ConcurrentLinkedQueue<SseClient> signalclients = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<SseClient> bookclients = new ConcurrentLinkedQueue<>();
     
     private final long intervalNanos;
     private final AtomicLong lastPushLPUpdateTime = new AtomicLong(0);
     private final AtomicLong lastPushPriceUpdateTime = new AtomicLong(0);    
     private final AtomicLong lastPushSignalUpdateTime = new AtomicLong(0);
+    private final AtomicLong lastPushBookUpdateTime = new AtomicLong(0);
 
     public GatewayService(int port, int intervalMs) {
     	// Convert MS to Nanos for higher precision comparison
@@ -48,30 +54,17 @@ public class GatewayService {
     		    signalclients.add(client);
     		    client.sendEvent("info", "Welcome to Gateway Signal");   
     		});
+    		
+    		config.routes.sse("/fullbook", client -> {
+                client.keepAlive();
+                client.onClose(() -> bookclients.remove(client));
+                bookclients.add(client);
+                client.sendEvent("info", "Welcome to Gateway Full Book");
+            });
     				
     	}).start(port);
         
     }
-    
-    /**
-     * Pushes price updates to /lpquote
-     */
-    public void pushLPUpdate(String lpId, double ref, double bid, int bS, double ask, int aS) {
-        if (lpclients.isEmpty()) return;
-
-        long now = System.nanoTime();
-        if (now - lastPushLPUpdateTime.get() < intervalNanos) return;
-
-        if (lastPushLPUpdateTime.getAndSet(now) != now) {
-            synchronized (reusableLPUpdate) {
-                reusableLPUpdate.update(lpId, ref, bid, bS, ask, aS);
-                for (SseClient client : lpclients) {
-                    client.sendEvent("lp_quote", reusableLPUpdate);
-                }
-            }
-        }
-    }
-
     
     /**
      * Pushes price updates to /priceengine
@@ -111,6 +104,49 @@ public class GatewayService {
             }
         }
     }
+    
+    
+    
+    /**
+     * Pushes price updates to /lpquote
+     */
+    public void pushLPUpdate(String lpId, double ref, double bid, int bS, double ask, int aS) {
+        if (lpclients.isEmpty()) return;
+
+        long now = System.nanoTime();
+        if (now - lastPushLPUpdateTime.get() < intervalNanos) return;
+
+        if (lastPushLPUpdateTime.getAndSet(now) != now) {
+            synchronized (reusableLPUpdate) {
+                reusableLPUpdate.update(lpId, ref, bid, bS, ask, aS);
+                for (SseClient client : lpclients) {
+                    client.sendEvent("lp_quote", reusableLPUpdate);
+                }
+            }
+        }
+    }
+    
+    
+    /**
+     * Pushes the aggregated order book to /fullbook using token window throttling.
+     */
+    public void pushFullBookUpdate(NavigableMap<Double, Map<String, Integer>> bids, 
+                                   NavigableMap<Double, Map<String, Integer>> asks) {
+        if (bookclients.isEmpty()) return;
+
+        long now = System.nanoTime();
+        if (now - lastPushBookUpdateTime.get() < intervalNanos) return;
+
+        if (lastPushBookUpdateTime.getAndSet(now) != now) {
+            synchronized (reusableBookUpdate) {
+                reusableBookUpdate.update(bids, asks);
+                for (SseClient client : bookclients) {
+                    client.sendEvent("full_book", reusableBookUpdate);
+                }
+            }
+        }
+    }
+    
     
     /**
      * Broadcast OMS/TCA data (Orders, Fills, Parent/Child links)
@@ -208,4 +244,24 @@ class QuoteUpdate {
     public double getAsk() { return this.ask; }
     public int getAskSize() { return this.askSize; }
     public double getMid() { return this.mid; }
+}
+
+/**
+ * Data Transfer Object for Full Book snapshots.
+ */
+class FullBookUpdate {
+    private NavigableMap<Double, Map<String, Integer>> bids;
+    private NavigableMap<Double, Map<String, Integer>> asks;
+    private long timestamp;
+
+    public void update(NavigableMap<Double, Map<String, Integer>> bids, 
+                       NavigableMap<Double, Map<String, Integer>> asks) {
+        this.bids = bids;
+        this.asks = asks;
+        this.timestamp = System.currentTimeMillis();
+    }
+
+    public NavigableMap<Double, Map<String, Integer>> getBids() { return bids; }
+    public NavigableMap<Double, Map<String, Integer>> getAsks() { return asks; }
+    public long getTimestamp() { return timestamp; }
 }
