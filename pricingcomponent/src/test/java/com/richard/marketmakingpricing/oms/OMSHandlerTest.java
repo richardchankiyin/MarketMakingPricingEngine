@@ -195,6 +195,37 @@ public class OMSHandlerTest {
     }
 
     @Test
+    void testRejectedBuyBySizeExceedingInternalQuote() {
+        // Arrange
+        // Internal Ask Size is 100
+        omsHandler.onSummaryUpdate(1.1000, 100, 1.1005, 100, 0, 0);
+
+        OrderEntryEvent event = new OrderEntryEvent();
+        event.setParentId(10101L);
+        event.setSenderId("CLIENT_SIZE_TEST");
+        event.setSide("BUY");
+        event.setQty(150); // 150 > 100 internal size
+        event.setLimit(1.1010); 
+
+        // Act
+        omsHandler.onEvent(event, 7L, true);
+
+        // Assert
+        ArgumentCaptor<LTOrder> captor = ArgumentCaptor.forClass(LTOrder.class);
+        verify(mockReplyChannel).onOMSReply(captor.capture());
+
+        LTOrder result = captor.getValue();
+        assertEquals(ExecutionReportStatus.REJECTED, result.getExecutionReport().getOrdStatus());
+        
+        // Should fail Gate 1 (PriceEngine Validation) due to size
+        assertTrue(result.getExecutionReport().getText().contains("PriceEngine Validation"),
+            "Should reject because order qty (150) exceeds internal ask size (100)");
+        
+        assertTrue(result.getHedgeOrders().isEmpty());
+    }
+    
+    
+    @Test
     void testRejectedBuyByInsufficientHedgeLiquidity() {
         // Arrange
         // We set internal size to 2000 so the "Liquidity Risk" check passes for 1000 qty
@@ -225,6 +256,37 @@ public class OMSHandlerTest {
         // Ensure no partial hedges were created
         assertTrue(result.getHedgeOrders().isEmpty(), "No hedge orders should be present for a rejected FOK");
     }
+    
+    
+    @Test
+    void testRejectedSellBySizeExceedingInternalQuote() {
+        // Arrange
+        // Internal Bid Size is 100
+        omsHandler.onSummaryUpdate(1.1000, 100, 1.1005, 100, 0, 0);
+
+        OrderEntryEvent event = new OrderEntryEvent();
+        event.setParentId(20202L);
+        event.setSenderId("CLIENT_SIZE_TEST");
+        event.setSide("SELL");
+        event.setQty(500); // 500 > 100 internal size
+        event.setLimit(1.0990); 
+
+        // Act
+        omsHandler.onEvent(event, 8L, true);
+
+        // Assert
+        ArgumentCaptor<LTOrder> captor = ArgumentCaptor.forClass(LTOrder.class);
+        verify(mockReplyChannel).onOMSReply(captor.capture());
+
+        LTOrder result = captor.getValue();
+        assertEquals(ExecutionReportStatus.REJECTED, result.getExecutionReport().getOrdStatus());
+        
+        assertTrue(result.getExecutionReport().getText().contains("PriceEngine Validation"),
+            "Should reject because order qty (500) exceeds internal bid size (100)");
+            
+        assertTrue(result.getHedgeOrders().isEmpty());
+    }
+    
     
     @Test
     void testRejectedSellByInsufficientHedgeLiquidity() {
