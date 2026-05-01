@@ -17,7 +17,8 @@ public class OMSHandlerTest {
     @BeforeEach
     void setUp() {
         mockReplyChannel = mock(OrderUpdateListener.class);
-        omsHandler = new OMSHandler(mockReplyChannel);
+        omsHandler = new OMSHandler();        
+        omsHandler.addOrderReplyListener(mockReplyChannel);
 
         // Setup Internal Quote: Bid 1.1000 (100 qty), Ask 1.1005 (100 qty)
         omsHandler.onSummaryUpdate(1.1000, 100, 1.1005, 100, 0, 0);

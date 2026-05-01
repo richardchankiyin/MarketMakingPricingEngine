@@ -5,6 +5,7 @@ import com.richard.marketmakingpricing.MarketUpdateListener;
 import com.richard.marketmakingpricing.OrderBookUpdateListener;
 
 import java.util.*;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -13,7 +14,8 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public class OMSHandler implements EventHandler<OrderEntryEvent>, MarketUpdateListener, OrderBookUpdateListener {
 
-    private final OrderUpdateListener replyChannel;
+    // 1. Refactored to support multiple listeners
+    private final List<OrderUpdateListener> replyListeners = new CopyOnWriteArrayList<>();
     
     // Internal Quote Cache (L1) - volatile for visibility across Disruptor/Market threads
     private volatile double internalBid, internalAsk;
@@ -25,8 +27,12 @@ public class OMSHandler implements EventHandler<OrderEntryEvent>, MarketUpdateLi
     private final AtomicReference<NavigableMap<Double, Map<String, Integer>>> asksReference = 
         new AtomicReference<>(new TreeMap<>());
 
-    public OMSHandler(OrderUpdateListener replyChannel) {
-        this.replyChannel = replyChannel;
+    // 2. Updated constructor for multi-listener pattern
+    public OMSHandler() {
+    }
+
+    public void addOrderReplyListener(OrderUpdateListener listener) {
+        this.replyListeners.add(listener);
     }
 
     /**
@@ -36,22 +42,20 @@ public class OMSHandler implements EventHandler<OrderEntryEvent>, MarketUpdateLi
     public void onEvent(OrderEntryEvent event, long sequence, boolean endOfBatch) {
         final long now = System.currentTimeMillis();
         
-        // 1. Capture dynamic Taker ID and normalize side
         final String takerId = (event.getSenderId() != null) ? event.getSenderId() : "UNKNOWN_TAKER";
         final boolean isBuy = event.getSide().equalsIgnoreCase("BUY") || event.getSide().equals("1");
         
-        // 2. Instantiate LTOrder container
         LTOrder ltOrder = new LTOrder(event.getParentId(), takerId, isBuy, event.getQty(), event.getLimit(), now);
 
-        // 3. Validation against Internal PriceEngine (L1)
+        // 3. Validation against Internal PriceEngine (L1) - Now includes Size Check
         if (!isMarketable(ltOrder)) {
             ltOrder.setExecutionReport(new LTExecutionReport(
                 ltOrder.getSenderCompID(), 
                 ltOrder.getClOrdID(), 
                 ExecutionReportStatus.REJECTED, 
-                0, 0, now, "Failed PriceEngine Validation"
+                0, 0, now, "Failed PriceEngine Validation (Price/Size)"
             ));
-            replyChannel.onOMSReply(ltOrder);
+            broadcastReply(ltOrder);
             return;
         }
 
@@ -67,8 +71,10 @@ public class OMSHandler implements EventHandler<OrderEntryEvent>, MarketUpdateLi
                 0, 0, now, "Insufficient Hedge Liquidity"
             ));
         } else {
-            // 5. Success Path: Fill Taker and Link Children
-            double fillPrice = ltOrder.isSideBuy() ? internalAsk : internalBid;
+            // 5. Success Path: Fill Taker using weighted average price from hedges
+            double totalHedgeCost = slices.stream().mapToDouble(h -> h.getPrice() * h.getOrderQty()).sum();
+            double fillPrice = totalHedgeCost / ltOrder.getOrderQty();
+
             ltOrder.setExecutionReport(new LTExecutionReport(
                 ltOrder.getSenderCompID(), 
                 ltOrder.getClOrdID(), 
@@ -81,27 +87,24 @@ public class OMSHandler implements EventHandler<OrderEntryEvent>, MarketUpdateLi
             }
         }
 
-        // 6. Final Reply (Traced by TCA and eventual ClientApp)
-        replyChannel.onOMSReply(ltOrder);
+        // 6. Final Multi-cast Reply
+        broadcastReply(ltOrder);
     }
 
     /**
-     * Logic for Marketability: checks if LT limit price is aggressive enough vs internal quote.
+     * Logic for Marketability: checks if LT limit price is aggressive enough AND size fits.
      */
     private boolean isMarketable(LTOrder order) {
         if (order.isSideBuy()) {
-            return internalAsk <= order.getPrice() && internalAskSize >= order.getOrderQty();
+            // BUY: Limit must be >= Ask AND Qty must be <= Internal Ask Size
+            return order.getPrice() >= internalAsk && order.getOrderQty() <= internalAskSize;
         } else {
-            return internalBid >= order.getPrice() && internalBidSize >= order.getOrderQty();
+            // SELL: Limit must be <= Bid AND Qty must be <= Internal Bid Size
+            return order.getPrice() <= internalBid && order.getOrderQty() <= internalBidSize;
         }
     }
 
-    /**
-     * Lock-free traversal of the market book. 
-     * Captures a local reference to ensure consistency during the loop.
-     */
     private List<HedgeOrder> calculateHedgesLockFree(boolean isSideBuy, int qtyToHedge, long now) {
-        // Snapshot the current book
         NavigableMap<Double, Map<String, Integer>> currentBook = isSideBuy ? asksReference.get() : bidsReference.get();
         
         List<HedgeOrder> slices = new ArrayList<>();
@@ -110,15 +113,11 @@ public class OMSHandler implements EventHandler<OrderEntryEvent>, MarketUpdateLi
         for (Map.Entry<Double, Map<String, Integer>> level : currentBook.entrySet()) {
             double price = level.getKey();
             for (Map.Entry<String, Integer> lpEntry : level.getValue().entrySet()) {
-                String lpId = lpEntry.getKey();
-                int available = lpEntry.getValue();
-
-                int take = Math.min(remaining, available);
+                int take = Math.min(remaining, lpEntry.getValue());
                 
-                // Create HedgeOrder and its Fill Report
-                HedgeOrder ho = new HedgeOrder(lpId, isSideBuy, take, price, now);
+                HedgeOrder ho = new HedgeOrder(lpEntry.getKey(), isSideBuy, take, price, now);
                 ho.setExecutionReport(new HedgeExecutionReport(
-                    lpId, ho.getClOrdID(), ExecutionReportStatus.FILLED, price, take, now
+                    lpEntry.getKey(), ho.getClOrdID(), ExecutionReportStatus.FILLED, price, take, now
                 ));
                 
                 slices.add(ho);
@@ -127,11 +126,17 @@ public class OMSHandler implements EventHandler<OrderEntryEvent>, MarketUpdateLi
                 if (remaining == 0) return slices;
             }
         }
-        return null; // Liquidity check failed for FOK
+        return null; 
+    }
+
+    private void broadcastReply(LTOrder order) {
+        for (OrderUpdateListener listener : replyListeners) {
+            listener.onOMSReply(order);
+        }
     }
 
     /**
-     * Listener: PriceEngine Summary Updates
+     * Listener: PriceEngine Summary Updates (Restored to original signature)
      */
     @Override
     public void onSummaryUpdate(double bB, int bS, double bA, int aS, double vB, double vA) {
@@ -143,12 +148,10 @@ public class OMSHandler implements EventHandler<OrderEntryEvent>, MarketUpdateLi
 
     /**
      * Listener: PriceAggregator Full Book Updates.
-     * Performs a lock-free swap of the book reference.
      */
     @Override
     public void onFullBookUpdate(NavigableMap<Double, Map<String, Integer>> bids, 
                                 NavigableMap<Double, Map<String, Integer>> asks) {
-        // Shallow copies to create a point-in-time immutable-like view for the OMS
         bidsReference.set(new TreeMap<>(bids));
         asksReference.set(new TreeMap<>(asks));
     }
