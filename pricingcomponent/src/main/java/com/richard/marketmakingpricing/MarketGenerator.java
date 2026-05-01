@@ -36,7 +36,7 @@ public class MarketGenerator {
         log.info("MarketGenerator initialized. Mid: {}", refPrice);
     }
 
-    public void addListener(LPQuoteListener listener) {
+    public void addLPQuoteListener(LPQuoteListener listener) {
         this.lpListeners.add(listener);
     }    
     
