@@ -195,7 +195,7 @@ public class OMSHandlerTest {
     }
 
     @Test
-    void testRejectedByInsufficientHedgeLiquidity() {
+    void testRejectedBuyByInsufficientHedgeLiquidity() {
         // Arrange
         // We set internal size to 2000 so the "Liquidity Risk" check passes for 1000 qty
         omsHandler.onSummaryUpdate(1.1000, 2000, 1.1005, 2000, 0, 0);
@@ -223,6 +223,54 @@ public class OMSHandlerTest {
         assertEquals("Insufficient Hedge Liquidity", result.getExecutionReport().getText());
         
         // Ensure no partial hedges were created
-        assertTrue(result.getHedgeOrders().isEmpty());
+        assertTrue(result.getHedgeOrders().isEmpty(), "No hedge orders should be present for a rejected FOK");
+    }
+    
+    @Test
+    void testRejectedSellByInsufficientHedgeLiquidity() {
+        // Arrange
+        // 1. Set internal Bid size to 2000 to pass the L1 Risk Gate for a 1000 qty order
+        omsHandler.onSummaryUpdate(1.1000, 2000, 1.1005, 2000, 0, 0);
+
+        // 2. Setup Market Bids with limited liquidity: Total = 100
+        NavigableMap<Double, Map<String, Integer>> bids = new TreeMap<>(Collections.reverseOrder());
+        NavigableMap<Double, Map<String, Integer>> asks = new TreeMap<>();
+        
+        Map<String, Integer> bidLevel1 = new HashMap<>();
+        bidLevel1.put("LP_C", 50);
+        bids.put(1.0999, bidLevel1);
+
+        Map<String, Integer> bidLevel2 = new HashMap<>();
+        bidLevel2.put("LP_D", 50);
+        bids.put(1.0998, bidLevel2);
+
+        omsHandler.onFullBookUpdate(bids, asks);
+
+        // 3. Create Sell Event for 1000 qty
+        OrderEntryEvent event = new OrderEntryEvent();
+        event.setParentId(77766L);
+        event.setSenderId("CLIENT_EPSILON");
+        event.setSide("SELL");
+        event.setQty(1000); 
+        event.setLimit(1.0990); // Aggressive limit
+
+        // Act
+        omsHandler.onEvent(event, 6L, true);
+
+        // Assert
+        ArgumentCaptor<LTOrder> captor = ArgumentCaptor.forClass(LTOrder.class);
+        verify(mockReplyChannel).onOMSReply(captor.capture());
+
+        LTOrder result = captor.getValue();
+        
+        // Should be rejected with FIX status '8'
+        assertEquals(ExecutionReportStatus.REJECTED, result.getExecutionReport().getOrdStatus());
+
+        
+        // Verify rejection reason is specifically about Hedge Liquidity (L2)
+        assertEquals("Insufficient Hedge Liquidity", result.getExecutionReport().getText());
+        
+        // Verify no partial fills were generated (FOK compliance)
+        assertTrue(result.getHedgeOrders().isEmpty(), "No hedge orders should be present for a rejected FOK");
     }
 }
