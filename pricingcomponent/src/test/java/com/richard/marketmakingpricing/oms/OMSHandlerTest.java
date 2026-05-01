@@ -21,7 +21,7 @@ public class OMSHandlerTest {
         omsHandler.addOrderReplyListener(mockReplyChannel);
 
         // Setup Internal Quote: Bid 1.1000 (100 qty), Ask 1.1005 (100 qty)
-        omsHandler.onSummaryUpdate(1.1000, 100, 1.1005, 100, 0, 0);
+        omsHandler.onQuoteUpdate(1.1000, 100, 1.1005, 100, 0, 0);
 
         // Setup Market Book for Hedging: 
         // LP_A @ 1.1006 (50), LP_B @ 1.1007 (50)
@@ -86,7 +86,7 @@ public class OMSHandlerTest {
     void testSuccessfulSellOrderWithHedging() {
         // Arrange: Setup internal quote and market bids
         // Internal Bid: 1.1000 (100 qty)
-        omsHandler.onSummaryUpdate(1.1000, 100, 1.1005, 100, 0, 0);
+        omsHandler.onQuoteUpdate(1.1000, 100, 1.1005, 100, 0, 0);
 
         // Setup Market Bids: LP_C @ 1.0999 (50), LP_D @ 1.0998 (50)
         // Using TreeMap with ReverseOrder for Bids (Highest to Lowest)
@@ -172,7 +172,7 @@ public class OMSHandlerTest {
     void testRejectedSellByInternalPrice() {
         // Arrange
         // Internal Quote: Bid 1.1000, Ask 1.1005
-        omsHandler.onSummaryUpdate(1.1000, 100, 1.1005, 100, 0, 0);
+        omsHandler.onQuoteUpdate(1.1000, 100, 1.1005, 100, 0, 0);
 
         OrderEntryEvent event = new OrderEntryEvent();
         event.setParentId(99988L);
@@ -199,7 +199,7 @@ public class OMSHandlerTest {
     void testRejectedBuyBySizeExceedingInternalQuote() {
         // Arrange
         // Internal Ask Size is 100
-        omsHandler.onSummaryUpdate(1.1000, 100, 1.1005, 100, 0, 0);
+        omsHandler.onQuoteUpdate(1.1000, 100, 1.1005, 100, 0, 0);
 
         OrderEntryEvent event = new OrderEntryEvent();
         event.setParentId(10101L);
@@ -230,7 +230,7 @@ public class OMSHandlerTest {
     void testRejectedBuyByInsufficientHedgeLiquidity() {
         // Arrange
         // We set internal size to 2000 so the "Liquidity Risk" check passes for 1000 qty
-        omsHandler.onSummaryUpdate(1.1000, 2000, 1.1005, 2000, 0, 0);
+        omsHandler.onQuoteUpdate(1.1000, 2000, 1.1005, 2000, 0, 0);
 
         OrderEntryEvent event = new OrderEntryEvent();
         event.setParentId(11121L);
@@ -263,7 +263,7 @@ public class OMSHandlerTest {
     void testRejectedSellBySizeExceedingInternalQuote() {
         // Arrange
         // Internal Bid Size is 100
-        omsHandler.onSummaryUpdate(1.1000, 100, 1.1005, 100, 0, 0);
+        omsHandler.onQuoteUpdate(1.1000, 100, 1.1005, 100, 0, 0);
 
         OrderEntryEvent event = new OrderEntryEvent();
         event.setParentId(20202L);
@@ -293,7 +293,7 @@ public class OMSHandlerTest {
     void testRejectedSellByInsufficientHedgeLiquidity() {
         // Arrange
         // 1. Set internal Bid size to 2000 to pass the L1 Risk Gate for a 1000 qty order
-        omsHandler.onSummaryUpdate(1.1000, 2000, 1.1005, 2000, 0, 0);
+        omsHandler.onQuoteUpdate(1.1000, 2000, 1.1005, 2000, 0, 0);
 
         // 2. Setup Market Bids with limited liquidity: Total = 100
         NavigableMap<Double, Map<String, Integer>> bids = new TreeMap<>(Collections.reverseOrder());

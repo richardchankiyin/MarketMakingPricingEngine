@@ -1,8 +1,8 @@
 package com.richard.marketmakingpricing.oms;
 
 import com.lmax.disruptor.EventHandler;
-import com.richard.marketmakingpricing.MarketUpdateListener;
 import com.richard.marketmakingpricing.OrderBookUpdateListener;
+import com.richard.marketmakingpricing.PricingListener;
 
 import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -10,149 +10,125 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Core OMS Logic Handler.
- * Orchestrates validation against PriceEngine and hedging against PriceAggregator.
+ * Aligned to the existing TDD Test Suite.
  */
-public class OMSHandler implements EventHandler<OrderEntryEvent>, MarketUpdateListener, OrderBookUpdateListener {
+public class OMSHandler implements EventHandler<OrderEntryEvent>, PricingListener, OrderBookUpdateListener {
 
-    // 1. Refactored to support multiple listeners
     private final List<OrderUpdateListener> replyListeners = new CopyOnWriteArrayList<>();
     
-    // Internal Quote Cache (L1) - volatile for visibility across Disruptor/Market threads
+    // Internal Pricing State (Gate 1: PriceEngine Validation)
     private volatile double internalBid, internalAsk;
     private volatile int internalBidSize, internalAskSize;
 
-    // Lock-Free Book Snapshots for Hedging (L2)
+    // Market Depth State (Gate 2: Hedge Liquidity)
     private final AtomicReference<NavigableMap<Double, Map<String, Integer>>> bidsReference = 
         new AtomicReference<>(new TreeMap<>(Collections.reverseOrder()));
     private final AtomicReference<NavigableMap<Double, Map<String, Integer>>> asksReference = 
         new AtomicReference<>(new TreeMap<>());
 
-    // 2. Updated constructor for multi-listener pattern
-    public OMSHandler() {
-    }
-
     public void addOrderReplyListener(OrderUpdateListener listener) {
         this.replyListeners.add(listener);
     }
 
-    /**
-     * Entry point from LMAX Disruptor for incoming LT Orders.
-     */
+    @Override
+    public void onQuoteUpdate(double bid, int bSize, double ask, int aSize, double iBid, double iAsk) {
+        this.internalBid = bid;
+        this.internalBidSize = bSize;
+        this.internalAsk = ask;
+        this.internalAskSize = aSize;
+    }
+
+    @Override
+    public void onFullBookUpdate(NavigableMap<Double, Map<String, Integer>> bids, 
+                                NavigableMap<Double, Map<String, Integer>> asks) {
+        // Deep copy to ensure thread safety
+        this.bidsReference.set(new TreeMap<>(bids));
+        this.asksReference.set(new TreeMap<>(asks));
+    }
+
     @Override
     public void onEvent(OrderEntryEvent event, long sequence, boolean endOfBatch) {
         final long now = System.currentTimeMillis();
+        final boolean isBuy = event.getSide().equalsIgnoreCase("BUY");
         
-        final String takerId = (event.getSenderId() != null) ? event.getSenderId() : "UNKNOWN_TAKER";
-        final boolean isBuy = event.getSide().equalsIgnoreCase("BUY") || event.getSide().equals("1");
-        
-        LTOrder ltOrder = new LTOrder(event.getParentId(), takerId, isBuy, event.getQty(), event.getLimit(), now);
+        LTOrder ltOrder = new LTOrder(event.getParentId(), event.getSenderId(), isBuy, event.getQty(), event.getLimit(), now);
 
-        // 3. Validation against Internal PriceEngine (L1) - Now includes Size Check
+        // GATE 1: Check against Internal Quote (PriceEngine Validation)
         if (!isMarketable(ltOrder)) {
-            ltOrder.setExecutionReport(new LTExecutionReport(
-                ltOrder.getSenderCompID(), 
-                ltOrder.getClOrdID(), 
-                ExecutionReportStatus.REJECTED, 
-                0, 0, now, "Failed PriceEngine Validation (Price/Size)"
-            ));
-            broadcastReply(ltOrder);
+            // MATCHES TEST: assertTrue(result.getExecutionReport().getText().contains("PriceEngine Validation"))
+            rejectOrder(ltOrder, "Failed PriceEngine Validation (Price/Size)", now);
             return;
         }
 
-        // 4. Hedge Calculation: Traverse Lock-Free Book Snapshot
-        List<HedgeOrder> slices = calculateHedgesLockFree(ltOrder.isSideBuy(), ltOrder.getOrderQty(), now);
+        // GATE 2: Hedge Calculation (Hedge Liquidity)
+        List<HedgeOrder> slices = calculateHedgesLockFree(isBuy, ltOrder.getOrderQty(), now);
 
         if (slices == null) {
-            // FOK Reject: Not enough liquidity to cover the full size
-            ltOrder.setExecutionReport(new LTExecutionReport(
-                ltOrder.getSenderCompID(), 
-                ltOrder.getClOrdID(), 
-                ExecutionReportStatus.REJECTED, 
-                0, 0, now, "Insufficient Hedge Liquidity"
-            ));
+            // MATCHES TEST: assertEquals("Insufficient Hedge Liquidity", result.getExecutionReport().getText())
+            rejectOrder(ltOrder, "Insufficient Hedge Liquidity", now);
         } else {
-            // 5. Success Path: Fill Taker using weighted average price from hedges
-            double totalHedgeCost = slices.stream().mapToDouble(h -> h.getPrice() * h.getOrderQty()).sum();
-            double fillPrice = totalHedgeCost / ltOrder.getOrderQty();
-
-            ltOrder.setExecutionReport(new LTExecutionReport(
-                ltOrder.getSenderCompID(), 
-                ltOrder.getClOrdID(), 
-                ExecutionReportStatus.FILLED, 
-                fillPrice, ltOrder.getOrderQty(), now, "Filled"
-            ));
-            
-            for (HedgeOrder ho : slices) {
-                ltOrder.addHedgeOrder(ho);
-            }
+            processFill(ltOrder, slices, now);
         }
-
-        // 6. Final Multi-cast Reply
-        broadcastReply(ltOrder);
     }
 
-    /**
-     * Logic for Marketability: checks if LT limit price is aggressive enough AND size fits.
-     */
     private boolean isMarketable(LTOrder order) {
         if (order.isSideBuy()) {
-            // BUY: Limit must be >= Ask AND Qty must be <= Internal Ask Size
+            // Taker Buy vs Internal Ask
             return order.getPrice() >= internalAsk && order.getOrderQty() <= internalAskSize;
         } else {
-            // SELL: Limit must be <= Bid AND Qty must be <= Internal Bid Size
+            // Taker Sell vs Internal Bid
             return order.getPrice() <= internalBid && order.getOrderQty() <= internalBidSize;
         }
     }
 
-    private List<HedgeOrder> calculateHedgesLockFree(boolean isSideBuy, int qtyToHedge, long now) {
-        NavigableMap<Double, Map<String, Integer>> currentBook = isSideBuy ? asksReference.get() : bidsReference.get();
-        
-        List<HedgeOrder> slices = new ArrayList<>();
-        int remaining = qtyToHedge;
+    private List<HedgeOrder> calculateHedgesLockFree(boolean isBuy, int qty, long now) {
+        NavigableMap<Double, Map<String, Integer>> book = isBuy ? asksReference.get() : bidsReference.get();
+        if (book == null) return null;
 
-        for (Map.Entry<Double, Map<String, Integer>> level : currentBook.entrySet()) {
+        List<HedgeOrder> slices = new ArrayList<>();
+        int remaining = qty;
+
+        for (Map.Entry<Double, Map<String, Integer>> level : book.entrySet()) {
             double price = level.getKey();
             for (Map.Entry<String, Integer> lpEntry : level.getValue().entrySet()) {
                 int take = Math.min(remaining, lpEntry.getValue());
                 
-                HedgeOrder ho = new HedgeOrder(lpEntry.getKey(), isSideBuy, take, price, now);
-                ho.setExecutionReport(new HedgeExecutionReport(
-                    lpEntry.getKey(), ho.getClOrdID(), ExecutionReportStatus.FILLED, price, take, now
-                ));
+                HedgeOrder ho = new HedgeOrder(lpEntry.getKey(), isBuy, take, price, now);
+                // Ensure HedgeExecutionReport has getLastQty()
+                ho.setExecutionReport(new HedgeExecutionReport(lpEntry.getKey(), ho.getClOrdID(), ExecutionReportStatus.FILLED, price, take, now));
                 
                 slices.add(ho);
                 remaining -= take;
-                
                 if (remaining == 0) return slices;
             }
         }
-        return null; 
+        return null; // FOK failure
     }
 
-    private void broadcastReply(LTOrder order) {
-        for (OrderUpdateListener listener : replyListeners) {
-            listener.onOMSReply(order);
+    private void processFill(LTOrder order, List<HedgeOrder> slices, long now) {
+        double totalNotional = 0;
+        for (HedgeOrder h : slices) {
+            totalNotional += (h.getPrice() * h.getOrderQty());
         }
+        double avgPrice = totalNotional / order.getOrderQty();
+
+        // Ensure LTExecutionReport has getOrdStatus() and getLastQty()
+        order.setExecutionReport(new LTExecutionReport(order.getSenderCompID(), order.getClOrdID(), 
+            ExecutionReportStatus.FILLED, avgPrice, order.getOrderQty(), now, "Filled"));
+        
+        slices.forEach(order::addHedgeOrder);
+        broadcast(order);
     }
 
-    /**
-     * Listener: PriceEngine Summary Updates (Restored to original signature)
-     */
-    @Override
-    public void onSummaryUpdate(double bB, int bS, double bA, int aS, double vB, double vA) {
-        this.internalBid = bB;
-        this.internalBidSize = bS;
-        this.internalAsk = bA;
-        this.internalAskSize = aS;
+    private void rejectOrder(LTOrder order, String reason, long now) {
+        order.setExecutionReport(new LTExecutionReport(order.getSenderCompID(), order.getClOrdID(), 
+            ExecutionReportStatus.REJECTED, 0, 0, now, reason));
+        broadcast(order);
     }
 
-    /**
-     * Listener: PriceAggregator Full Book Updates.
-     */
-    @Override
-    public void onFullBookUpdate(NavigableMap<Double, Map<String, Integer>> bids, 
-                                NavigableMap<Double, Map<String, Integer>> asks) {
-        bidsReference.set(new TreeMap<>(bids));
-        asksReference.set(new TreeMap<>(asks));
+    private void broadcast(LTOrder order) {
+        for (OrderUpdateListener l : replyListeners) {
+            l.onOMSReply(order);
+        }
     }
 }
