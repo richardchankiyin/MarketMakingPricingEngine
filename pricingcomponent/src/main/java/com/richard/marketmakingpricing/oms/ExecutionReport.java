@@ -28,7 +28,8 @@ public abstract class ExecutionReport {
     public long getClOrdID() { return clOrdID; }
     public String getSenderCompID() { return senderCompID; }
     public String getTargetCompID() { return targetCompID; }
-    public String getOrdStatus() { return ordStatus.getFixTag39Value(); }
+    public String getOrdStatusFixTag() { return ordStatus.getFixTag39Value(); }
+    public ExecutionReportStatus getOrdStatus() { return ordStatus; }
     public double getLastPx() { return lastPx; }
     public int getLastQty() { return lastQty; }
     public long getTransactTime() { return transactTime; }
