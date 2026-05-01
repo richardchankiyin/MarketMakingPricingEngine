@@ -5,14 +5,14 @@ public abstract class ExecutionReport {
     private final long clOrdID;
     private final String senderCompID;
     private final String targetCompID;
-    private final String ordStatus;
+    private final ExecutionReportStatus ordStatus;
     private final double lastPx;
     private final int lastQty;
     private final long transactTime;
     private final String text;
 
     protected ExecutionReport(long execID, long clOrdID, String sender, String target, 
-                               String status, double px, int qty, long time, String text) {
+    		ExecutionReportStatus status, double px, int qty, long time, String text) {
         this.execID = execID;
         this.clOrdID = clOrdID;
         this.senderCompID = sender;
@@ -28,7 +28,7 @@ public abstract class ExecutionReport {
     public long getClOrdID() { return clOrdID; }
     public String getSenderCompID() { return senderCompID; }
     public String getTargetCompID() { return targetCompID; }
-    public String getOrdStatus() { return ordStatus; }
+    public String getOrdStatus() { return ordStatus.getFixTag39Value(); }
     public double getLastPx() { return lastPx; }
     public int getLastQty() { return lastQty; }
     public long getTransactTime() { return transactTime; }

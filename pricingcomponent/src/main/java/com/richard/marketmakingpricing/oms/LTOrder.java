@@ -4,12 +4,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class LTOrder extends Order {
+    public LTOrder(long clOrdID, String senderId, boolean isBuy, int qty, double limit, long time) {
+        // senderId = Taker, targetId = OMS
+        super(clOrdID, senderId, "OMS", isBuy, qty, limit, time);
+    }
+    
     private LTExecutionReport executionReport;
     private final List<HedgeOrder> hedgeOrders = new ArrayList<>();
-
-    public LTOrder(long clOrdID, String side, int qty, double limit, long time) {
-        super(clOrdID, "LT_CLIENT", "OMS", side, qty, limit, time);
-    }
 
     public void setExecutionReport(LTExecutionReport er) { this.executionReport = er; }
     public LTExecutionReport getExecutionReport() { return executionReport; }

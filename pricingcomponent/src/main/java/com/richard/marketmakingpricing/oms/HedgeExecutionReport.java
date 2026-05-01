@@ -15,7 +15,7 @@ public class HedgeExecutionReport extends ExecutionReport {
      * @param qty     Tag 32 (LP Execution Quantity)
      * @param time    Tag 60 (TransactTime injected)
      */
-    public HedgeExecutionReport(String lpId, long clOrdID, String status, double px, int qty, long time) {
+    public HedgeExecutionReport(String lpId, long clOrdID, ExecutionReportStatus status, double px, int qty, long time) {
         super(
             System.nanoTime(), // execID
             clOrdID, 
