@@ -8,12 +8,16 @@ import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * Core OMS Logic Handler.
  * Aligned to the existing TDD Test Suite.
  */
 public class OMSHandler implements EventHandler<OrderEntryEvent>, PricingListener, OrderBookUpdateListener {
-
+	private static final Logger log = LoggerFactory.getLogger(OMSHandler.class);
+	private static final double INVALID_PRICE = -1;
     private final List<OrderUpdateListener> replyListeners = new CopyOnWriteArrayList<>();
     
     // Internal Pricing State (Gate 1: PriceEngine Validation)
@@ -25,7 +29,7 @@ public class OMSHandler implements EventHandler<OrderEntryEvent>, PricingListene
         new AtomicReference<>(new TreeMap<>(Collections.reverseOrder()));
     private final AtomicReference<NavigableMap<Double, Map<String, Integer>>> asksReference = 
         new AtomicReference<>(new TreeMap<>());
-
+    
     public void addOrderReplyListener(OrderUpdateListener listener) {
         this.replyListeners.add(listener);
     }
@@ -52,9 +56,12 @@ public class OMSHandler implements EventHandler<OrderEntryEvent>, PricingListene
         final boolean isBuy = event.getSide().equalsIgnoreCase("BUY");
         
         LTOrder ltOrder = new LTOrder(event.getParentId(), event.getSenderId(), isBuy, event.getQty(), event.getLimit(), now);
+        
+        log.debug("OrderEntryEvent: {}", event);
 
         // GATE 1: Check against Internal Quote (PriceEngine Validation)
-        if (!isMarketable(ltOrder)) {
+        double ltexecutionprice = getExecutionPrice(ltOrder);
+        if (ltexecutionprice == INVALID_PRICE) {
             // MATCHES TEST: assertTrue(result.getExecutionReport().getText().contains("PriceEngine Validation"))
             rejectOrder(ltOrder, "Failed PriceEngine Validation (Price/Size)", now);
             return;
@@ -67,20 +74,28 @@ public class OMSHandler implements EventHandler<OrderEntryEvent>, PricingListene
             // MATCHES TEST: assertEquals("Insufficient Hedge Liquidity", result.getExecutionReport().getText())
             rejectOrder(ltOrder, "Insufficient Hedge Liquidity", now);
         } else {
-            processFill(ltOrder, slices, now);
+            processFill(ltOrder, ltexecutionprice, slices, now);
         }
     }
 
-    private boolean isMarketable(LTOrder order) {
+    private double getExecutionPrice(LTOrder order) {
         if (order.isSideBuy()) {
-            // Taker Buy vs Internal Ask
-            return order.getPrice() >= internalAsk && order.getOrderQty() <= internalAskSize;
+        	double price = internalAsk;
+        	int size = internalAskSize;
+            if (order.getPrice() >= price && order.getOrderQty() <= size) {
+                return price; // The price the client is filled at
+            }
         } else {
-            // Taker Sell vs Internal Bid
-            return order.getPrice() <= internalBid && order.getOrderQty() <= internalBidSize;
+        	double price = internalBid;
+        	int size = internalBidSize;
+            if (order.getPrice() <= internalBid && order.getOrderQty() <= size) {
+                return price; // The price the client is filled at
+            }
         }
+        return INVALID_PRICE; // Signal for reject
     }
-
+    
+    
     private List<HedgeOrder> calculateHedgesLockFree(boolean isBuy, int qty, long now) {
         NavigableMap<Double, Map<String, Integer>> book = isBuy ? asksReference.get() : bidsReference.get();
         if (book == null) return null;
@@ -88,6 +103,8 @@ public class OMSHandler implements EventHandler<OrderEntryEvent>, PricingListene
         List<HedgeOrder> slices = new ArrayList<>();
         int remaining = qty;
 
+        log.debug("isBuy: {} qty: {}, time: {}, book: {}", isBuy, qty, now, book);
+        
         for (Map.Entry<Double, Map<String, Integer>> level : book.entrySet()) {
             double price = level.getKey();
             for (Map.Entry<String, Integer> lpEntry : level.getValue().entrySet()) {
@@ -105,16 +122,16 @@ public class OMSHandler implements EventHandler<OrderEntryEvent>, PricingListene
         return null; // FOK failure
     }
 
-    private void processFill(LTOrder order, List<HedgeOrder> slices, long now) {
-        double totalNotional = 0;
-        for (HedgeOrder h : slices) {
-            totalNotional += (h.getPrice() * h.getOrderQty());
-        }
-        double avgPrice = totalNotional / order.getOrderQty();
+    private void processFill(LTOrder order, double ltexecprice, List<HedgeOrder> slices, long now) {
+        //double totalNotional = 0;
+        //for (HedgeOrder h : slices) {
+        //    totalNotional += (h.getPrice() * h.getOrderQty());
+        //}
+        //double avgPrice = totalNotional / order.getOrderQty();
 
         // Ensure LTExecutionReport has getOrdStatus() and getLastQty()
         order.setExecutionReport(new LTExecutionReport(order.getSenderCompID(), order.getClOrdID(), 
-            ExecutionReportStatus.FILLED, avgPrice, order.getOrderQty(), now, "Filled"));
+            ExecutionReportStatus.FILLED, ltexecprice, order.getOrderQty(), now, "Filled"));
         
         slices.forEach(order::addHedgeOrder);
         broadcast(order);

@@ -7,8 +7,11 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.DoubleAdder;
 
-public class TCAManager implements OrderUpdateListener {
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+public class TCAManager implements OrderUpdateListener {
+	private static final Logger log = LoggerFactory.getLogger(OrderUpdateListener.class);
     private final Map<String, ClientMetrics> clientStats = new ConcurrentHashMap<>();
     private final List<TCAUpdateListener> listeners = new CopyOnWriteArrayList<>();
 
@@ -47,6 +50,8 @@ public class TCAManager implements OrderUpdateListener {
     }
 
     private void processFill(LTOrder order, ClientMetrics metrics) {
+
+    	
         globalTotalFills.incrementAndGet();
         
         LTExecutionReport takerReport = order.getExecutionReport();
@@ -61,6 +66,9 @@ public class TCAManager implements OrderUpdateListener {
         double avgHedgePrice = totalHedgeCost / totalQty;
         double pnl = order.isSideBuy() ? (takerPrice - avgHedgePrice) : (avgHedgePrice - takerPrice);
         double bpsPnL = (pnl / takerPrice) * 10000;
+        
+    	log.debug("TCA_TRACE|ID:{}|Is Buy:{}|TakerPx:{}|HedgeAvgPx:{}|HedgeCount:{}|PnL:{}", 
+                order.getClOrdID(), order.isSideBuy(), takerPrice, avgHedgePrice, order.getHedgeOrders().size(), pnl);
 
         metrics.recordFill(pnl, bpsPnL);
         metrics.evaluateToxicity(); 

@@ -46,4 +46,8 @@ public class OrderEntryEvent {
 
     public double getLimit() { return limit; }
     public void setLimit(double limit) { this.limit = limit; }
+    
+    public String toString() {
+    	return String.format("OrderEntryEvent:[parentId: %d}|senderId: %s|side: %s|qty: %d|limit: %f]", this.parentId, this.senderId, this.side, this.qty, this.limit);
+    }
 }
