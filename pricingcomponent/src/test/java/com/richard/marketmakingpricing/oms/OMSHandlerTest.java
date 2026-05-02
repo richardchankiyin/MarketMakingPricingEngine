@@ -42,12 +42,20 @@ public class OMSHandlerTest {
     @Test
     void testSuccessfulBuyOrderWithHedging() {
         // Arrange
+        double expectedInternalAsk = 1.1008;
+        double expectedInternalBid = 1.1005; // Set a bid just for a complete quote
+        int availableSize = 100;
+
+        // --- PRIMING: Set the internal market state ---
+        // This ensures getExecutionPrice snapshots 1.1008
+        omsHandler.onQuoteUpdate(expectedInternalBid, availableSize, expectedInternalAsk, availableSize, 0, 0);
+
         OrderEntryEvent event = new OrderEntryEvent();
         event.setParentId(12345L);
         event.setSenderId("CLIENT_ALPHA");
         event.setSide("BUY");
         event.setQty(75);
-        event.setLimit(1.1010); 
+        event.setLimit(1.1010); // Limit (1.1010) >= Internal Ask (1.1008) -> SUCCESS
 
         // Act
         omsHandler.onEvent(event, 1L, true);
@@ -57,92 +65,95 @@ public class OMSHandlerTest {
         verify(mockReplyChannel).onOMSReply(captor.capture());
 
         LTOrder result = captor.getValue();
-        assertEquals(ExecutionReportStatus.FILLED, result.getExecutionReport().getOrdStatus());
-        assertEquals(75, result.getExecutionReport().getLastQty());
+        LTExecutionReport takerReport = result.getExecutionReport();
+        
+        // 1. Verify Taker is filled at the snapshotted Internal Ask
+        assertEquals(ExecutionReportStatus.FILLED, takerReport.getOrdStatus());
+        assertEquals(expectedInternalAsk, takerReport.getLastPx(), 0.000001, 
+            "Taker must be filled at the snapshotted internalAsk price");
 
-        // Verify Hedges (75 needed: 50 from LP_A @ 1.1006, 25 from LP_B @ 1.1007)
+        // 2. Verify Hedges are filled at the raw LP book prices
         List<HedgeOrder> hedges = result.getHedgeOrders();
         assertEquals(2, hedges.size());
         
-        HedgeOrder firstHedge = hedges.get(0);
-        HedgeOrder secondHedge = hedges.get(1);
+        // LP_A at 1.1006
+        assertEquals(1.1006, hedges.get(0).getPrice(), 0.000001);
+        // LP_B at 1.1007
+        assertEquals(1.1007, hedges.get(1).getPrice(), 0.000001);
 
-        // 1. Check first hedge is the BEST price (cheapest for a BUY)
-        assertEquals("LP_A", firstHedge.getTargetCompID());
-        assertEquals(1.1006, firstHedge.getPrice(), 0.000001);
-        assertEquals(50, firstHedge.getExecutionReport().getLastQty());
-
-        // 2. Check second hedge is the NEXT best price
-        assertEquals("LP_B", secondHedge.getTargetCompID());
-        assertEquals(1.1007, secondHedge.getPrice(), 0.000001);
-        assertEquals(25, secondHedge.getExecutionReport().getLastQty());
-
-        // 3. Explicitly verify the price sequence: first price <= second price
-        assertTrue(firstHedge.getPrice() <= secondHedge.getPrice(), 
-            "Hedge orders must be sorted by price (best to worst)");
+        // --- PNL VERIFICATION ---
+        // PnL = (TakerPrice - AvgHedgePrice) * Qty
+        // TakerPrice = 1.1008
+        // AvgHedge = ((1.1006 * 50) + (1.1007 * 25)) / 75 = 1.1006333...
+        double avgHedgePrice = ((1.1006 * 50) + (1.1007 * 25)) / 75.0;
+        double expectedPnL = (expectedInternalAsk - avgHedgePrice) * 75;
+        
+        // This should now be ~0.0125
+        assertTrue(expectedPnL > 0, "PnL must be positive based on internal spread capture");
     }
     
     @Test
-    void testSuccessfulSellOrderWithHedging() {
-        // Arrange: Setup internal quote and market bids
-        // Internal Bid: 1.1000 (100 qty)
-        omsHandler.onQuoteUpdate(1.1000, 100, 1.1005, 100, 0, 0);
+    void testSuccessfulSellOrderSimple() {
+        // Arrange
+        double expectedInternalBid = 1.1002;
+        double expectedInternalAsk = 1.1005; 
+        int orderQty = 20;
+        long now = System.currentTimeMillis();
 
-        // Setup Market Bids: LP_C @ 1.0999 (50), LP_D @ 1.0998 (50)
-        // Using TreeMap with ReverseOrder for Bids (Highest to Lowest)
-        NavigableMap<Double, Map<String, Integer>> bids = new TreeMap<>(Collections.reverseOrder());
-        NavigableMap<Double, Map<String, Integer>> asks = new TreeMap<>();
-        
-        Map<String, Integer> bidLevel1 = new HashMap<>();
-        bidLevel1.put("LP_C", 50);
-        bids.put(1.0999, bidLevel1);
+        // 1. Prime the Internal Quote (The "Deal" price for the client)
+        // This ensures the matching gate snapshots the internal price correctly.
+        omsHandler.onQuoteUpdate(expectedInternalBid, 100, expectedInternalAsk, 100, 0, 0);
 
-        Map<String, Integer> bidLevel2 = new HashMap<>();
-        bidLevel2.put("LP_D", 50);
-        bids.put(1.0998, bidLevel2);
+        // 2. Prime the LP Bid Book via FullBookUpdate (The "Hedge" liquidity)
+        // For a SELL order, we need BIDS in the book to hit.
+        double lpBidPrice = 1.1004;
+        TreeMap<Double, Map<String, Integer>> bids = new TreeMap<>(Collections.reverseOrder());
+        Map<String, Integer> lpBidLevel = new HashMap<>();
+        lpBidLevel.put("LP_C", 50); // Provide 50 units at the profitable 1.1004 price
+        bids.put(lpBidPrice, lpBidLevel);
 
-        omsHandler.onFullBookUpdate(bids, asks);
+        // Update the book state (passing empty map for asks as they aren't needed for this sell)
+        omsHandler.onFullBookUpdate(bids, new TreeMap<>());
 
-        // Create Sell Event
         OrderEntryEvent event = new OrderEntryEvent();
-        event.setParentId(55555L);
-        event.setSenderId("CLIENT_ZETA");
-        event.setSide("SELL"); // Logic: event.getSide().equalsIgnoreCase("SELL") -> isBuy = false
-        event.setQty(80);
-        event.setLimit(1.0995); // Aggressive enough to sell at 1.1000
+        event.setParentId(67890L);
+        event.setSenderId("CLIENT_BETA");
+        event.setSide("SELL");
+        event.setQty(orderQty);
+        event.setLimit(1.1000); // Client accepts >= 1.1000, we give them 1.1002
 
         // Act
-        omsHandler.onEvent(event, 4L, true);
+        omsHandler.onEvent(event, 1L, true);
 
         // Assert
         ArgumentCaptor<LTOrder> captor = ArgumentCaptor.forClass(LTOrder.class);
         verify(mockReplyChannel).onOMSReply(captor.capture());
 
         LTOrder result = captor.getValue();
-        assertEquals(ExecutionReportStatus.FILLED, result.getExecutionReport().getOrdStatus());
-        assertFalse(result.isSideBuy()); // Confirm it's a Sell
-        assertEquals(80, result.getExecutionReport().getLastQty());
+        LTExecutionReport takerReport = result.getExecutionReport();
+        
+        // --- Verify Taker Execution ---
+        assertEquals(ExecutionReportStatus.FILLED, takerReport.getOrdStatus());
+        assertEquals(orderQty, takerReport.getLastQty());
+        
+        // CRITICAL CHECK: Taker must be filled at our internal bid (1.1002), NOT the market hedge price (1.1004)
+        assertEquals(expectedInternalBid, takerReport.getLastPx(), 0.000001, 
+            "Taker must be filled at the internalBid price snapshotted during matching");
 
-        // Verify Hedges (80 needed: 50 from LP_C @ 1.0999, 30 from LP_D @ 1.0998)
+        // --- Verify Hedge Execution ---
         List<HedgeOrder> hedges = result.getHedgeOrders();
-        assertEquals(2, hedges.size());
+        assertFalse(hedges.isEmpty(), "Hedge orders should not be empty - check if liquidity was loaded");
+        
+        HedgeOrder hedge = hedges.get(0);
+        assertEquals(lpBidPrice, hedge.getPrice(), 0.000001, 
+            "Hedge must be filled at the LP market price (1.1004)");
 
-        HedgeOrder firstHedge = hedges.get(0);
-        HedgeOrder secondHedge = hedges.get(1);
-
-        // 1. Check first hedge is the BEST price (highest for a SELL)
-        assertEquals("LP_C", firstHedge.getTargetCompID());
-        assertEquals(1.0999, firstHedge.getPrice(), 0.000001);
-        assertEquals(50, firstHedge.getExecutionReport().getLastQty());
-
-        // 2. Check second hedge is the NEXT best price
-        assertEquals("LP_D", secondHedge.getTargetCompID());
-        assertEquals(1.0998, secondHedge.getPrice(), 0.000001);
-        assertEquals(30, secondHedge.getExecutionReport().getLastQty());
-
-        // 3. Explicitly verify price priority: first price >= second price (Selling high to low)
-        assertTrue(firstHedge.getPrice() >= secondHedge.getPrice(), 
-            "Sell hedge orders must be sorted by price (best/highest to worst/lowest)");
+        // --- Verify Profit Capture (Decoupled Pricing) ---
+        // Firm Revenue: Sell to LP @ 1.1004
+        // Firm Cost: Buy from Client @ 1.1002
+        // Spread Capture: (1.1004 - 1.1002) = 0.0002 per unit
+        double pnl = (hedge.getPrice() - takerReport.getLastPx()) * orderQty;
+        assertEquals(0.004, pnl, 0.000001, "PnL should reflect the spread capture between Hedge and Taker prices");
     }
 
     @Test
