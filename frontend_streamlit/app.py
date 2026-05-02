@@ -25,6 +25,14 @@ if 'full_book_data' not in st.session_state:
 if 'threads_initialized' not in st.session_state:
     st.session_state.threads_initialized = False
 
+# --- NEW TCA STATE ---
+if 'pnl_history' not in st.session_state:
+    st.session_state.pnl_history = pd.DataFrame(columns=['time', 'pnl'])
+if 'client_metrics' not in st.session_state:
+    st.session_state.client_metrics = {}
+if 'firm_metrics' not in st.session_state:
+    st.session_state.firm_metrics = {'totalOrders': 0, 'totalFills': 0, 'totalPnL': 0.0, 'fillRate': 0.0}
+
 # 3. Worker
 def sse_worker(url, state_key):
     headers = {"Accept": "text/event-stream", "Cache-Control": "no-cache"}
@@ -66,12 +74,25 @@ def sse_worker(url, state_key):
                             }
 
                         elif state_key == 'full_book':
-                            # Store the raw nested maps: {Price: {LP: Size}}
                             st.session_state.full_book_data = {
                                 'bids': data.get('bids', {}),
                                 'asks': data.get('asks', {})
                             }
-                    except: continue
+
+                        elif state_key == 'tca':
+                            firm = data.get('firmMetrics', {})
+                            st.session_state.firm_metrics = firm
+                            st.session_state.client_metrics = data.get('allClientMetrics', {})
+                            
+                            # Update PnL History for live curve
+                            new_pnl = {'time': timestamp_str, 'pnl': firm.get('totalPnL', 0.0)}
+                            st.session_state.pnl_history = pd.concat([
+                                st.session_state.pnl_history, 
+                                pd.DataFrame([new_pnl])
+                            ]).tail(50) # Buffer last 50 updates
+                            
+                    except Exception as e:
+                        continue
         except Exception as e:
             logger.error(f"Stream {state_key} error: {e}")
             time.sleep(2)
@@ -82,7 +103,8 @@ if not st.session_state.threads_initialized:
         ('http://127.0.0.1:7070/priceengine', 'price_data'),
         ('http://127.0.0.1:7070/signal', 'signal'),
         ('http://127.0.0.1:7070/lpquote', 'lp'),
-        ('http://127.0.0.1:7070/fullbook', 'full_book')
+        ('http://127.0.0.1:7070/fullbook', 'full_book'),
+        ('http://127.0.0.1:7070/tca', 'tca')
     ]
     for url, key in endpoints:
         t = threading.Thread(target=sse_worker, args=(url, key), daemon=True)
@@ -90,27 +112,19 @@ if not st.session_state.threads_initialized:
         t.start()
     st.session_state.threads_initialized = True
 
-# 5. Helper for Book UI
+# 5. Helper Functions
 def render_book_side(data_dict, side_name):
-    """Flattens nested JSON: {Price: {LP: Size}} into a Sorted DataFrame."""
     rows = []
     for price, lps in data_dict.items():
         for lp, size in lps.items():
-            rows.append({
-                "Price": float(price),
-                "LP": lp,
-                "Size": size
-            })
-    
+            rows.append({"Price": float(price), "LP": lp, "Size": size})
     df = pd.DataFrame(rows)
     if not df.empty:
-        # Bids sorted descending (Highest price first), Asks sorted ascending (Lowest price first)
         df = df.sort_values(by="Price", ascending=(side_name == "Asks"))
         st.dataframe(df, use_container_width=True, hide_index=True)
     else:
         st.caption("No liquidity in book")
 
-# 6. UI Styling Logic
 def highlight_recent_updates(row):
     duration = 0.5
     now = datetime.now()
@@ -120,8 +134,42 @@ def highlight_recent_updates(row):
     return [''] * len(row)
 
 # 7. UI Layout
-st.set_page_config(page_title="L1 & Full Book Monitor", layout="wide")
+st.set_page_config(page_title="OMS Gateway & Strategy Monitor", layout="wide")
 st.title("🛡️ Market Making Gateway Monitor")
+
+# --- TCA & STRATEGY SECTION ---
+st.header("📈 Strategy Performance & TCA")
+f_m = st.session_state.firm_metrics
+m_col1, m_col2, m_col3, m_col4 = st.columns(4)
+m_col1.metric("Firm Total PnL", f"{f_m['totalPnL']:.4f}")
+m_col2.metric("Fill Rate", f"{f_m['fillRate']*100:.2f}%")
+m_col3.metric("Total Fills", f_m['totalFills'])
+m_col4.metric("Total Orders", f_m['totalOrders'])
+
+chart_col, reject_col = st.columns([2, 1])
+with chart_col:
+    st.subheader("Strategy PnL Curve")
+    if not st.session_state.pnl_history.empty:
+        st.line_chart(st.session_state.pnl_history.set_index('time'))
+
+with reject_col:
+    st.subheader("Reject Distribution")
+    if st.session_state.client_metrics:
+        # Aggregate rejectReasonCounts across all clients for firm-wide view
+        df_clients = pd.DataFrame.from_dict(st.session_state.client_metrics, orient='index')
+        if 'rejectReasonCounts' in df_clients.columns:
+            reject_reasons = df_clients['rejectReasonCounts'].apply(pd.Series).sum().to_frame().T
+            st.bar_chart(reject_reasons.T)
+
+st.subheader("Client Statistics & Spread Capture")
+if st.session_state.client_metrics:
+    client_stats_df = pd.DataFrame.from_dict(st.session_state.client_metrics, orient='index')
+    # Filter for display columns
+    display_cols = ['totalPnL', 'averageBps', 'fillCount', 'rejectCount', 'toxic']
+    available_cols = [c for c in display_cols if c in client_stats_df.columns]
+    st.dataframe(client_stats_df[available_cols], use_container_width=True)
+
+st.divider()
 
 # --- FULL BOOK SECTION ---
 st.subheader("📊 Global Aggregated Order Book (Full Depth)")
