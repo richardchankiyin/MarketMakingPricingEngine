@@ -6,15 +6,15 @@ import requests
 import time
 import logging
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
+from datetime import datetime
 from sseclient import SSEClient
 from streamlit.runtime.scriptrunner import add_script_run_ctx
 
-# 1. Logging
+# 1. Logging Setup
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# 2. State Initialization
+# 2. Session State Initialization
 if 'price_history' not in st.session_state:
     st.session_state.price_history = pd.DataFrame(columns=['time', 'bid', 'bidSize', 'ask', 'askSize', 'mid'])
 if 'signal_history' not in st.session_state:
@@ -25,18 +25,16 @@ if 'full_book_data' not in st.session_state:
     st.session_state.full_book_data = {'bids': {}, 'asks': {}}
 if 'ohlc_data' not in st.session_state:
     st.session_state.ohlc_data = pd.DataFrame(columns=['time', 'open', 'high', 'low', 'close'])
-if 'threads_initialized' not in st.session_state:
-    st.session_state.threads_initialized = False
-
-# TCA State
 if 'pnl_history' not in st.session_state:
     st.session_state.pnl_history = pd.DataFrame(columns=['time', 'pnl'])
 if 'client_metrics' not in st.session_state:
     st.session_state.client_metrics = {}
 if 'firm_metrics' not in st.session_state:
     st.session_state.firm_metrics = {'totalOrders': 0, 'totalFills': 0, 'totalPnL': 0.0, 'fillRate': 0.0}
+if 'threads_initialized' not in st.session_state:
+    st.session_state.threads_initialized = False
 
-# 3. Worker Logic
+# 3. SSE Worker Function
 def sse_worker(url, state_key):
     headers = {"Accept": "text/event-stream", "Cache-Control": "no-cache"}
     while True:
@@ -60,16 +58,14 @@ def sse_worker(url, state_key):
                             }
                             st.session_state.price_history = pd.concat([st.session_state.price_history, pd.DataFrame([new_entry])]).tail(15)
                             
-                            # Update Candlestick (1-min aggregation)
+                            # 1-minute OHLC Aggregation
                             current_min = now.replace(second=0, microsecond=0)
                             if not st.session_state.ohlc_data.empty and st.session_state.ohlc_data.iloc[-1]['time'] == current_min:
-                                # Update existing candle
                                 idx = st.session_state.ohlc_data.index[-1]
                                 st.session_state.ohlc_data.at[idx, 'high'] = max(st.session_state.ohlc_data.at[idx, 'high'], mid)
                                 st.session_state.ohlc_data.at[idx, 'low'] = min(st.session_state.ohlc_data.at[idx, 'low'], mid)
                                 st.session_state.ohlc_data.at[idx, 'close'] = mid
                             else:
-                                # New candle
                                 new_candle = {'time': current_min, 'open': mid, 'high': mid, 'low': mid, 'close': mid}
                                 st.session_state.ohlc_data = pd.concat([st.session_state.ohlc_data, pd.DataFrame([new_candle])]).tail(20)
 
@@ -132,8 +128,9 @@ def highlight_recent_updates(row):
         return ['background-color: #990000; color: white'] * len(row)
     return [''] * len(row)
 
-# 6. UI Layout
-st.set_page_config(page_title="OMS Gateway Monitor", layout="wide")
+# 6. UI Main Layout
+st.set_page_config(page_title="Market Making Platform Monitor", layout="wide")
+st.title("🛡️ Market Making Platform Monitor")
 
 # --- ROW 1: STRATEGY PERFORMANCE & TCA ---
 st.header("📈 Strategy Performance & TCA")
@@ -149,12 +146,35 @@ with c1:
     st.subheader("Strategy PnL Curve")
     if not st.session_state.pnl_history.empty:
         st.line_chart(st.session_state.pnl_history.set_index('time'))
+
 with c2:
-    st.subheader("Reject Distribution")
+    st.subheader("Reject Reason Distribution")
     if st.session_state.client_metrics:
         df_clients = pd.DataFrame.from_dict(st.session_state.client_metrics, orient='index')
         if 'rejectReasonCounts' in df_clients.columns:
-            st.bar_chart(df_clients['rejectReasonCounts'].apply(pd.Series).sum())
+            # 1. Prepare Data
+            raw_counts = df_clients['rejectReasonCounts'].apply(pd.Series).sum()
+            reason_map = {
+                "101": "101: Price/Size",
+                "102": "102: Liquidity",
+                "999": "999: Unknown"
+            }
+            labeled_counts = raw_counts.rename(index=lambda x: reason_map.get(str(x), f"{x}: Other"))
+            
+            # 2. Split column c2 into sub-columns to remove vertical blank space
+            chart_sub, info_sub = st.columns([1, 1])
+            
+            with chart_sub:
+                st.bar_chart(labeled_counts, height=200)
+            
+            with info_sub:
+                st.markdown("""
+                **Legend:**
+                - **101**: Limit price outside spread or qty too large.
+                - **102**: LPs have insufficient depth to hedge.
+                - **999**: Internal/Unknown error.
+                """)
+
 
 st.subheader("Client Statistics & Spread Capture")
 if st.session_state.client_metrics:
@@ -164,7 +184,7 @@ if st.session_state.client_metrics:
 
 st.divider()
 
-# --- ROW 2: QUOTES, SIGNALS & CANDLESTICK ---
+# --- ROW 2: MARKET DYNAMICS (QUOTES, SIGNAL, CANDLES) ---
 st.header("🔍 Market Dynamics")
 r2_col1, r2_col2, r2_col3 = st.columns([1.2, 1, 1.2])
 
@@ -176,6 +196,7 @@ with r2_col2:
     st.subheader("Alpha Skew Signal")
     if not st.session_state.signal_history.empty:
         st.line_chart(st.session_state.signal_history.set_index('time'))
+        st.caption("💡 **+ve (Positive):** Bullish Bias (Buying Pressure) | **-ve (Negative):** Bearish Bias (Selling Pressure)")
 
 with r2_col3:
     st.subheader("Mid Price (1m Candle)")
@@ -192,7 +213,7 @@ with r2_col3:
 
 st.divider()
 
-# --- ROW 3: ORDER BOOK & LP QUOTES ---
+# --- ROW 3: LIQUIDITY DEPTH (BOOK & LP QUOTES) ---
 st.header("🧱 Liquidity Depth")
 r3_col1, r3_col2 = st.columns([2, 1.5])
 
@@ -214,6 +235,6 @@ with r3_col2:
                      column_order=['LP ID', 'Last Update', 'Ref Price', 'Bid', 'BidSize', 'Ask', 'AskSize'])
     else: st.info("Awaiting LP Quotes...")
 
-# Rapid Refresh
+# 8. UI Refresh
 time.sleep(0.3) 
 st.rerun()
