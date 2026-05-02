@@ -9,4 +9,10 @@ public class HedgeOrder extends Order {
 
     public void setExecutionReport(HedgeExecutionReport er) { this.executionReport = er; }
     public HedgeExecutionReport getExecutionReport() { return executionReport; }
+    
+    public String toString() {
+    	StringBuilder strBuilder = new StringBuilder(super.toString());
+    	strBuilder.append("HedgeExecutionReport:[").append(executionReport).append("]");
+    	return strBuilder.toString();
+    }
 }

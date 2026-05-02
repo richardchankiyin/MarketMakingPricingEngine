@@ -154,6 +154,7 @@ public class OMSHandler implements EventHandler<OrderEntryEvent>, PricingListene
     }
 
     private void broadcast(LTOrder order) {
+    	log.info("Order Handled: {}", order);
         for (OrderUpdateListener l : replyListeners) {
             l.onOMSReply(order);
         }
