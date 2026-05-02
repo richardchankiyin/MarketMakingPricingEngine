@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 import pandas as pd
 import json
@@ -9,6 +10,9 @@ import plotly.graph_objects as go
 from datetime import datetime
 from sseclient import SSEClient
 from streamlit.runtime.scriptrunner import add_script_run_ctx
+
+# Get the host from environment, or default to localhost for local testing
+backend_host = os.getenv("BACKEND_ADDR", "127.0.0.1:7070")
 
 # 1. Logging Setup
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
@@ -99,11 +103,11 @@ def sse_worker(url, state_key):
 # 4. Thread Launcher
 if not st.session_state.threads_initialized:
     endpoints = [
-        ('http://127.0.0.1:7070/priceengine', 'price_data'),
-        ('http://127.0.0.1:7070/signal', 'signal'),
-        ('http://127.0.0.1:7070/lpquote', 'lp'),
-        ('http://127.0.0.1:7070/fullbook', 'full_book'),
-        ('http://127.0.0.1:7070/tca', 'tca')
+        (f'http://{backend_host}/priceengine', 'price_data'),
+        (f'http://{backend_host}/signal', 'signal'),
+        (f'http://{backend_host}/lpquote', 'lp'),
+        (f'http://{backend_host}/fullbook', 'full_book'),
+        (f'http://{backend_host}/tca', 'tca')
     ]
     for url, key in endpoints:
         t = threading.Thread(target=sse_worker, args=(url, key), daemon=True)
