@@ -1,0 +1,23 @@
+version: '3.8'
+services:
+  backend:
+    build: .
+    container_name: mm-gateway-backend
+    ports:
+      - "7070:7070"
+    volumes:
+      - ./logs:/app/logs
+    # Tweak variables here for the end-user
+    environment:
+      - MIN_PROFIT_MARGIN=0.003
+      - TICK_SIZE=0.001
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend_streamlit
+    container_name: mm-gateway-ui
+    ports:
+      - "8501:8501"
+    depends_on:
+      - backend
+    restart: unless-stopped
