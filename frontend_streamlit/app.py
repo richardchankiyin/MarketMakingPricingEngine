@@ -189,7 +189,7 @@ st.header("🔍 Market Dynamics")
 r2_col1, r2_col2, r2_col3 = st.columns([1.2, 1, 1.2])
 
 with r2_col1:
-    st.subheader("External Bid / Ask Quote")
+    st.subheader("Our Offering - Bid / Ask Quote")
     st.dataframe(st.session_state.price_history.copy(), use_container_width=True, hide_index=True)
 
 with r2_col2:

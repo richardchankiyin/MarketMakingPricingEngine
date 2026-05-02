@@ -52,7 +52,7 @@ public class MarketGenerator {
         this.signalEmitter = new SignalEmitter();
         this.tcaManager = new TCAManager();
         this.omsHandler = new OMSHandler();
-        this.engine = new PricingEngine(aggregator, signalEmitter, 0.01, 0.02, 0.15, 500);
+        this.engine = new PricingEngine(aggregator, signalEmitter, 0.0005, 0.001, 0.06, 500);
 
         // 2. Setup Disruptor
         this.disruptor = new Disruptor<>(
