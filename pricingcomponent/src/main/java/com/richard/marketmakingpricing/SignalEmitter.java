@@ -24,7 +24,7 @@ public class SignalEmitter implements MarketUpdateListener {
     }
 
     @Override
-    public void onBookUpdate(double bid, int bSize, double ask, int aSize, double vwapBid, double vwapAsk) {
+    public void onSummaryUpdate(double bid, int bSize, double ask, int aSize, double vwapBid, double vwapAsk) {
         // Basic validation to prevent NaN or Infinity
         if (vwapBid <= 0 || vwapAsk <= 0 || bid >= ask) return;
 

@@ -36,7 +36,7 @@ public class PricingEngine implements MarketUpdateListener, SignalListener {
         this.maxSignalSkew = maxSignalSkew;
         this.quoteSize = quoteSize;
 
-        this.aggregator.addListener(this);
+        this.aggregator.addMarketListener(this);
         this.signalEmitter.addListener(this);
     }
 
@@ -51,7 +51,7 @@ public class PricingEngine implements MarketUpdateListener, SignalListener {
     }
 
     @Override
-    public void onBookUpdate(double bid, int bSize, double ask, int aSize, double vwapBid, double vwapAsk) {
+    public void onSummaryUpdate(double bid, int bSize, double ask, int aSize, double vwapBid, double vwapAsk) {
         this.bestBid = bid;
         this.bestAsk = ask;
         refreshQuote();
