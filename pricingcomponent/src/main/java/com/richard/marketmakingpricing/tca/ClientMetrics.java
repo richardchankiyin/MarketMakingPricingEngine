@@ -1,9 +1,13 @@
 package com.richard.marketmakingpricing.tca;
 
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.DoubleAdder;
 
 public class ClientMetrics {
+	private final Map<Integer, Integer> rejectReasonCounts = new ConcurrentHashMap<>();
+    private static final int UNKNOWN_REASON = 999; // Default for null/unexpected
     private final String clientId;
     private final AtomicInteger fills = new AtomicInteger();
     private final AtomicInteger rejects = new AtomicInteger();
@@ -20,10 +24,21 @@ public class ClientMetrics {
         totalBps.add(bps);
     }
 
-    public void recordReject() { 
-        rejects.incrementAndGet(); 
+    public void recordReject(Integer reasonCode) { 
+    	// 1. Map null or 0 to our Unknown/Safety bucket
+        int code = (reasonCode == null || reasonCode == 0) ? UNKNOWN_REASON : reasonCode;
+        
+        // 2. Update the specific reason distribution
+        rejectReasonCounts.merge(code, 1, Integer::sum);
+        
+        // 3. Increment the global reject counter for the client
+        rejects.incrementAndGet();
     }
 
+    public Map<Integer, Integer> getRejectReasonCounts() {
+        return rejectReasonCounts;
+    }
+    
     /**
      * Logic to determine toxicity. 
      * Threshold: Avg PnL < -2.0 Bps after at least 10 fills.

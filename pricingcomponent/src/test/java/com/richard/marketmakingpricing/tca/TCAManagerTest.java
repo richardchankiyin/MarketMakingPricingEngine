@@ -8,6 +8,8 @@ import org.mockito.ArgumentCaptor;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
+import java.util.Map;
+
 public class TCAManagerTest {
 
     private TCAManager tcaManager;
@@ -29,7 +31,7 @@ public class TCAManagerTest {
 
         // --- Scenario 2: CLIENT_B Rejected Order ---
         LTOrder order2 = new LTOrder(2L, "CLIENT_B", true, 100, 1.1000, System.currentTimeMillis());
-        order2.setExecutionReport(new LTExecutionReport("CLIENT_B", 2L, ExecutionReportStatus.REJECTED, 0, 0, 0, "Price Error"));
+        order2.setExecutionReport(new LTExecutionReport("CLIENT_B", 2L, ExecutionReportStatus.REJECTED, 0, 0, 0, 111, "Price Error"));
         tcaManager.onOMSReply(order2);
 
         // Capture the metrics sent to the listener
@@ -77,6 +79,31 @@ public class TCAManagerTest {
         assertEquals(10, toxicStats.getFillCount());
     }
 
+    
+    @Test
+    void testTCAManagerRejectReasonCounting() {
+        String clientId = "LT_17";
+        
+        // 1. Known Reject 101
+        LTOrder order101 = createRejectOrder(clientId, true, 100, 1.10, 101, "Price/Size Fail");
+        
+        // 2. Known Reject 102
+        LTOrder order102 = createRejectOrder(clientId, true, 100, 1.10, 102, "Liquidity Fail");
+
+        // Act
+        tcaManager.onOMSReply(order101);
+        tcaManager.onOMSReply(order101); // Increment count to 2
+        tcaManager.onOMSReply(order102);
+
+        // Assert
+        ClientMetrics metrics = tcaManager.getClientMetrics(clientId);
+        Map<Integer, Integer> dist = metrics.getRejectReasonCounts();
+        
+        assertEquals(2, dist.get(101));
+        assertEquals(1, dist.get(102));
+        assertEquals(3, metrics.getRejectCount());
+    }
+    
     /**
      * Helper to create a fully populated LTOrder with a single Hedge child
      */
@@ -90,6 +117,33 @@ public class TCAManagerTest {
         HedgeOrder ho = new HedgeOrder("LP_1", isBuy, qty, hedgePx, 0);
         ho.setExecutionReport(new HedgeExecutionReport("LP_1", 2L, ExecutionReportStatus.FILLED, hedgePx, qty, 0));
         order.addHedgeOrder(ho);
+        
+        return order;
+    }
+    
+    /**
+     * Helper to create a rejected LTOrder with a specific reject reason code
+     */
+    /**
+     * Helper to create a rejected LTOrder matching your specific constructor
+     */
+    private LTOrder createRejectOrder(String clientId, boolean isBuy, int qty, double limit, int reasonCode, String reasonText) {
+        long now = System.currentTimeMillis();
+        long clOrdID = System.nanoTime(); // Match the 'long' requirement
+        
+        LTOrder order = new LTOrder(System.nanoTime(), clientId, isBuy, qty, limit, now);
+        
+        // Constructor: (targetClientId, clOrdID, status, px, qty, time, rejectReason, text)
+        order.setExecutionReport(new LTExecutionReport(
+            clientId, 
+            clOrdID, 
+            ExecutionReportStatus.REJECTED, 
+            0.0, 
+            0, 
+            now, 
+            reasonCode, 
+            reasonText
+        ));
         
         return order;
     }

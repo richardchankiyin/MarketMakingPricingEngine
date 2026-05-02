@@ -22,6 +22,11 @@ public class TCAManager implements OrderUpdateListener {
 
     public void addListener(TCAUpdateListener listener) { this.listeners.add(listener); }
 
+    
+    ClientMetrics getClientMetrics(String clientId) {
+    	return clientStats.get(clientId);
+    }
+    
     @Override
     public void onOMSReply(LTOrder order) {
         globalTotalOrders.incrementAndGet();
@@ -31,7 +36,7 @@ public class TCAManager implements OrderUpdateListener {
         LTExecutionReport takerReport = order.getExecutionReport();
         
         if (takerReport.getOrdStatus() == ExecutionReportStatus.REJECTED) {
-            cMetrics.recordReject();
+            cMetrics.recordReject(takerReport.getRejectReason());
         } else {
             processFill(order, cMetrics);
         }
