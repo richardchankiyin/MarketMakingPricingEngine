@@ -69,6 +69,7 @@ public class OMSHandlerTest {
         
         // 1. Verify Taker is filled at the snapshotted Internal Ask
         assertEquals(ExecutionReportStatus.FILLED, takerReport.getOrdStatus());
+        assertNull(takerReport.getRejectReason());
         assertEquals(expectedInternalAsk, takerReport.getLastPx(), 0.000001, 
             "Taker must be filled at the snapshotted internalAsk price");
 
@@ -98,7 +99,6 @@ public class OMSHandlerTest {
         double expectedInternalBid = 1.1002;
         double expectedInternalAsk = 1.1005; 
         int orderQty = 20;
-        long now = System.currentTimeMillis();
 
         // 1. Prime the Internal Quote (The "Deal" price for the client)
         // This ensures the matching gate snapshots the internal price correctly.
@@ -134,6 +134,7 @@ public class OMSHandlerTest {
         
         // --- Verify Taker Execution ---
         assertEquals(ExecutionReportStatus.FILLED, takerReport.getOrdStatus());
+        assertNull(takerReport.getRejectReason());
         assertEquals(orderQty, takerReport.getLastQty());
         
         // CRITICAL CHECK: Taker must be filled at our internal bid (1.1002), NOT the market hedge price (1.1004)
@@ -175,6 +176,7 @@ public class OMSHandlerTest {
 
         LTOrder result = captor.getValue();
         assertEquals(ExecutionReportStatus.REJECTED, result.getExecutionReport().getOrdStatus());
+        assertEquals(result.getExecutionReport().getRejectReason(), Integer.valueOf(101));
         assertTrue(result.getExecutionReport().getText().contains("PriceEngine Validation"));
         assertTrue(result.getHedgeOrders().isEmpty());
     }
@@ -203,6 +205,7 @@ public class OMSHandlerTest {
         LTOrder result = captor.getValue();
         assertEquals(ExecutionReportStatus.REJECTED, result.getExecutionReport().getOrdStatus());
         assertTrue(result.getExecutionReport().getText().contains("PriceEngine Validation"));
+        assertEquals(result.getExecutionReport().getRejectReason(), Integer.valueOf(101));
         assertTrue(result.getHedgeOrders().isEmpty());
     }
 
@@ -232,7 +235,7 @@ public class OMSHandlerTest {
         // Should fail Gate 1 (PriceEngine Validation) due to size
         assertTrue(result.getExecutionReport().getText().contains("PriceEngine Validation"),
             "Should reject because order qty (150) exceeds internal ask size (100)");
-        
+        assertEquals(result.getExecutionReport().getRejectReason(), Integer.valueOf(101));
         assertTrue(result.getHedgeOrders().isEmpty());
     }
     
@@ -265,6 +268,8 @@ public class OMSHandlerTest {
         // The reason should now correctly be Hedge Liquidity because 1000 > 100 (LP_A+LP_B)
         assertEquals("Insufficient Hedge Liquidity", result.getExecutionReport().getText());
         
+        assertEquals(result.getExecutionReport().getRejectReason(), Integer.valueOf(102));
+        
         // Ensure no partial hedges were created
         assertTrue(result.getHedgeOrders().isEmpty(), "No hedge orders should be present for a rejected FOK");
     }
@@ -295,7 +300,7 @@ public class OMSHandlerTest {
         
         assertTrue(result.getExecutionReport().getText().contains("PriceEngine Validation"),
             "Should reject because order qty (500) exceeds internal bid size (100)");
-            
+        assertEquals(result.getExecutionReport().getRejectReason(), Integer.valueOf(101));    
         assertTrue(result.getHedgeOrders().isEmpty());
     }
     
@@ -343,6 +348,7 @@ public class OMSHandlerTest {
         
         // Verify rejection reason is specifically about Hedge Liquidity (L2)
         assertEquals("Insufficient Hedge Liquidity", result.getExecutionReport().getText());
+        assertEquals(result.getExecutionReport().getRejectReason(), Integer.valueOf(102));
         
         // Verify no partial fills were generated (FOK compliance)
         assertTrue(result.getHedgeOrders().isEmpty(), "No hedge orders should be present for a rejected FOK");

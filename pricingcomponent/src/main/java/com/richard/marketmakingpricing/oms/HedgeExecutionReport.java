@@ -25,6 +25,7 @@ public class HedgeExecutionReport extends ExecutionReport {
             px, 
             qty, 
             time, 
+            null,
             null               // Hedges usually succeed or fail silently in FOK
         );
         this.lpId = lpId;

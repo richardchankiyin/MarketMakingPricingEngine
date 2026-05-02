@@ -9,10 +9,11 @@ public abstract class ExecutionReport {
     private final double lastPx;
     private final int lastQty;
     private final long transactTime;
+    private final Integer rejectReason;
     private final String text;
 
     protected ExecutionReport(long execID, long clOrdID, String sender, String target, 
-    		ExecutionReportStatus status, double px, int qty, long time, String text) {
+    		ExecutionReportStatus status, double px, int qty, long time, Integer rejectReason, String text) {
         this.execID = execID;
         this.clOrdID = clOrdID;
         this.senderCompID = sender;
@@ -21,6 +22,7 @@ public abstract class ExecutionReport {
         this.lastPx = px;
         this.lastQty = qty;
         this.transactTime = time;
+        this.rejectReason = rejectReason;
         this.text = text;
     }
 
@@ -33,5 +35,6 @@ public abstract class ExecutionReport {
     public double getLastPx() { return lastPx; }
     public int getLastQty() { return lastQty; }
     public long getTransactTime() { return transactTime; }
+    public Integer getRejectReason() { return rejectReason; }
     public String getText() { return text; }
 }

@@ -18,6 +18,9 @@ import org.slf4j.LoggerFactory;
 public class OMSHandler implements EventHandler<OrderEntryEvent>, PricingListener, OrderBookUpdateListener {
 	private static final Logger log = LoggerFactory.getLogger(OMSHandler.class);
 	private static final double INVALID_PRICE = -1;
+	private static final int REJECT_CODE_FAIL_PRICE_VALIDATION = 101;
+	private static final int REJECT_CODE_INSUFFICIENT_HEDGE_LIQUIDITY = 102;
+	
     private final List<OrderUpdateListener> replyListeners = new CopyOnWriteArrayList<>();
     
     // Internal Pricing State (Gate 1: PriceEngine Validation)
@@ -63,7 +66,7 @@ public class OMSHandler implements EventHandler<OrderEntryEvent>, PricingListene
         double ltexecutionprice = getExecutionPrice(ltOrder);
         if (ltexecutionprice == INVALID_PRICE) {
             // MATCHES TEST: assertTrue(result.getExecutionReport().getText().contains("PriceEngine Validation"))
-            rejectOrder(ltOrder, "Failed PriceEngine Validation (Price/Size)", now);
+            rejectOrder(ltOrder, REJECT_CODE_FAIL_PRICE_VALIDATION,  now);
             return;
         }
 
@@ -72,7 +75,7 @@ public class OMSHandler implements EventHandler<OrderEntryEvent>, PricingListene
 
         if (slices == null) {
             // MATCHES TEST: assertEquals("Insufficient Hedge Liquidity", result.getExecutionReport().getText())
-            rejectOrder(ltOrder, "Insufficient Hedge Liquidity", now);
+            rejectOrder(ltOrder, REJECT_CODE_INSUFFICIENT_HEDGE_LIQUIDITY, now);
         } else {
             processFill(ltOrder, ltexecutionprice, slices, now);
         }
@@ -137,9 +140,16 @@ public class OMSHandler implements EventHandler<OrderEntryEvent>, PricingListene
         broadcast(order);
     }
 
-    private void rejectOrder(LTOrder order, String reason, long now) {
+    private void rejectOrder(LTOrder order, int reasonCode, long now) {
+    	String reasonText = switch (reasonCode) {
+	        case REJECT_CODE_FAIL_PRICE_VALIDATION -> "Failed PriceEngine Validation (Price/Size)";
+	        case REJECT_CODE_INSUFFICIENT_HEDGE_LIQUIDITY -> "Insufficient Hedge Liquidity";
+	        default  -> "Others";
+    	};
+    	
+    	
         order.setExecutionReport(new LTExecutionReport(order.getSenderCompID(), order.getClOrdID(), 
-            ExecutionReportStatus.REJECTED, 0, 0, now, reason));
+            ExecutionReportStatus.REJECTED, 0, 0, now, reasonCode, reasonText));
         broadcast(order);
     }
 
