@@ -55,7 +55,7 @@ public class OMSHandler implements EventHandler<OrderEntryEvent>, PricingListene
 
     @Override
     public void onEvent(OrderEntryEvent event, long sequence, boolean endOfBatch) {
-        final long now = System.nanoTime();
+        final long now = event.getTransactTime();
         final boolean isBuy = event.getSide().equalsIgnoreCase("BUY");
         
         LTOrder ltOrder = new LTOrder(event.getParentId(), event.getSenderId(), isBuy, event.getQty(), event.getLimit(), now);
@@ -149,8 +149,7 @@ public class OMSHandler implements EventHandler<OrderEntryEvent>, PricingListene
     }
 
     private void broadcast(LTOrder order) {
-    	if (log.isInfoEnabled())
-    		log.info("[Order Handled: {}][Time Elapsed in μs {}]", order, System.nanoTime() - order.getTransactTime());
+    	log.info("[Order Handled: {}][Time Elapsed in μs {}]", order, System.nanoTime() - order.getTransactTime());
         for (OrderUpdateListener l : replyListeners) {
             l.onOMSReply(order);
         }

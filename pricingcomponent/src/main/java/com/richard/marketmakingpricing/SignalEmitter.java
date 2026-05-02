@@ -4,8 +4,11 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 
-public class SignalEmitter implements MarketUpdateListener {
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+public class SignalEmitter implements MarketUpdateListener {
+	private static final Logger log = LoggerFactory.getLogger(SignalEmitter.class);
     private final AtomicLong lastSignalBits = new AtomicLong(Double.doubleToRawLongBits(0.0));
     private final double changeThreshold;    
 
@@ -25,6 +28,7 @@ public class SignalEmitter implements MarketUpdateListener {
 
     @Override
     public void onSummaryUpdate(double bid, int bSize, double ask, int aSize, double vwapBid, double vwapAsk) {
+    	long before = System.nanoTime();
         // Basic validation to prevent NaN or Infinity
         if (vwapBid <= 0 || vwapAsk <= 0 || bid >= ask) return;
 
@@ -44,6 +48,7 @@ public class SignalEmitter implements MarketUpdateListener {
         if (newSignal < -1.0) newSignal = -1.0;
 
         updateAtomicSignal(newSignal);
+        log.info("time diff in μs: {}", System.nanoTime() - before);
     }
 
     private void updateAtomicSignal(double newSignal) {

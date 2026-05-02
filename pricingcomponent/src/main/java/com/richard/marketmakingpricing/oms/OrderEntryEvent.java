@@ -19,6 +19,9 @@ public class OrderEntryEvent {
     
     // Tag 44: Limit Price
     private double limit;
+    
+    // Tag 60: Transact Time
+    private long transactTime;
 
     /**
      * Helper to clear the event data when being recycled in the RingBuffer.
@@ -29,6 +32,7 @@ public class OrderEntryEvent {
         this.side = null;
         this.qty = 0;
         this.limit = 0.0;
+        this.transactTime = 0L;
     }
     
     // Getters and Setters
@@ -47,7 +51,10 @@ public class OrderEntryEvent {
     public double getLimit() { return limit; }
     public void setLimit(double limit) { this.limit = limit; }
     
+    public long getTransactTime() { return transactTime; }
+    public void setTransactTime(long transactTime) { this.transactTime = transactTime; }
+    
     public String toString() {
-    	return String.format("OrderEntryEvent:[parentId: %d}|senderId: %s|side: %s|qty: %d|limit: %f]", this.parentId, this.senderId, this.side, this.qty, this.limit);
+    	return String.format("OrderEntryEvent:[parentId: %d}|senderId: %s|side: %s|qty: %d|limit: %f|transactTime: %d]", this.parentId, this.senderId, this.side, this.qty, this.limit, this.transactTime);
     }
 }

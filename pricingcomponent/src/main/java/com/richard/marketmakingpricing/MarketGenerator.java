@@ -121,7 +121,9 @@ public class MarketGenerator {
             event.setSide(random.nextBoolean() ? "BUY" : "SELL");
             event.setQty(10 + random.nextInt(200));
             event.setLimit(event.getSide().equals("BUY") ? refPrice + 0.01 : refPrice - 0.01);
-            event.setParentId(System.nanoTime());
+            long transactTime = System.nanoTime();
+            event.setTransactTime(transactTime);
+            event.setParentId(transactTime);
         } finally {
             ringBuffer.publish(sequence);
         }
