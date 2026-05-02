@@ -1,5 +1,14 @@
 package com.richard.marketmakingpricing;
 
+import com.lmax.disruptor.RingBuffer;
+import com.lmax.disruptor.YieldingWaitStrategy;
+import com.lmax.disruptor.dsl.Disruptor;
+import com.lmax.disruptor.dsl.ProducerType;
+import com.lmax.disruptor.util.DaemonThreadFactory;
+import com.richard.marketmakingpricing.oms.*;
+import com.richard.marketmakingpricing.tca.TCAManager;
+import com.richard.marketmakingpricing.tca.TCAUpdateListener;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -8,51 +17,78 @@ import java.util.Random;
 import java.util.concurrent.*;
 
 public class MarketGenerator {
-	private final List<LPQuoteListener> lpListeners = new CopyOnWriteArrayList<>();
     private static final Logger log = LoggerFactory.getLogger(MarketGenerator.class);
-
-    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
-    private final ExecutorService lpPool = Executors.newFixedThreadPool(12);
-    private final Random random = new Random();
-
+    private final List<LPQuoteListener> lpListeners = new CopyOnWriteArrayList<>();
+    
+    // Internal Components
     private final PriceAggregator aggregator;
     private final SignalEmitter signalEmitter;
     private final PricingEngine engine;
-
-    private double refPrice = 100.00;
-    private final double vol = 0.02;
+    private final OMSHandler omsHandler;
+    private final TCAManager tcaManager;
     
-    private static final int NOOFLP = 12;
-    
+    // Disruptor Infrastructure
+    private final Disruptor<OrderEntryEvent> disruptor;
+    private final RingBuffer<OrderEntryEvent> ringBuffer;
 
-    public MarketGenerator(PriceAggregator aggregator, SignalEmitter signalEmitter, PricingEngine engine) {
-    	this.aggregator = aggregator;
-    	this.signalEmitter = signalEmitter;
-    	this.engine = engine;
+    // Simulation Threads & State
+    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+    private final ExecutorService lpPool;
+    private final Random random = new Random();
+    private double refPrice;
+    private final double volatility;
+    private final int numberOfLPs;
+    private final int numberOfTakers;
 
+    public MarketGenerator(double initialRefPrice, double volatility, int numberOfLPs, int numberOfTakers) {
+        this.refPrice = initialRefPrice;
+        this.volatility = volatility;
+        this.numberOfLPs = numberOfLPs;
+        this.numberOfTakers = numberOfTakers;
+        this.lpPool = Executors.newFixedThreadPool(numberOfLPs);
+
+        // 1. Initialize Ecosystem Components
+        this.aggregator = new PriceAggregator(numberOfLPs);
+        this.signalEmitter = new SignalEmitter();
+        this.tcaManager = new TCAManager();
+        this.omsHandler = new OMSHandler();
+        this.engine = new PricingEngine(aggregator, signalEmitter, 0.01, 0.02, 0.15, 500);
+
+        // 2. Setup Disruptor
+        this.disruptor = new Disruptor<>(
+                OrderEntryEvent::new, 
+                1024, 
+                DaemonThreadFactory.INSTANCE,
+                ProducerType.SINGLE, 
+                new YieldingWaitStrategy()
+        );
+        this.disruptor.handleEventsWith(omsHandler);
+        this.ringBuffer = this.disruptor.start();
+
+        // 3. Internal Wiring (Ecosystem Logic)
         this.aggregator.addMarketListener(this.signalEmitter);
         this.aggregator.addMarketListener(this.engine);
+        this.aggregator.addBookListener(omsHandler); // For book-level hedging
         
-        log.info("MarketGenerator initialized. Mid: {}", refPrice);
+        this.engine.addListener(this.omsHandler); // For internal quote validation
+        
+        this.omsHandler.addOrderReplyListener(this.tcaManager); // For analytics
+        
+        log.info("MarketGenerator Ecosystem initialized: Mid={}, LPs={}, Takers={}", 
+                 refPrice, numberOfLPs, numberOfTakers);
     }
 
-    public void addLPQuoteListener(LPQuoteListener listener) {
-        this.lpListeners.add(listener);
-    }    
-    
-    //TODO below tick sending to be parameterized
     public void startSimulation() {
-        log.info("Starting Market Simulation...");
+        log.info("Starting Simulation...");
         scheduler.scheduleAtFixedRate(this::tick, 0, 10, TimeUnit.MILLISECONDS);
     }
 
-    //TODO below to be refactored to be parameterized
     private void tick() {
         try {
-            refPrice += (random.nextDouble() - 0.5) * vol;
-            log.debug("Market Mid Move: {}", refPrice);
+            refPrice += (random.nextDouble() - 0.5) * volatility;
 
-            for (int i = 1; i <= NOOFLP; i++) {
+            // Update LPs
+            for (int i = 1; i <= numberOfLPs; i++) {
                 final String lpId = "LP_" + i;
                 lpPool.submit(() -> {
                     double lpSpread = 0.02 + (random.nextDouble() * 0.04);
@@ -60,68 +96,47 @@ public class MarketGenerator {
                     double lpAsk = refPrice + (lpSpread / 2.0);
                     int lpSize = 200 + random.nextInt(800);
 
-                    // Logging the LP injection
-                    log.trace("{} updated: [{} @ {} | {} @ {}]", 
-                              lpId, lpBid, lpSize, lpAsk, lpSize);
-                    
                     for (LPQuoteListener l : lpListeners) {
                         l.onLPUpdate(lpId, refPrice, lpBid, lpSize, lpAsk, lpSize);
                     }
-
                     aggregator.onUpdate(lpId, lpBid, lpSize, lpAsk, lpSize);
                 });
             }
+
+            // Taker Logic
+            if (random.nextDouble() > 0.7) {
+                simulateTakerOrder();
+            }
         } catch (Exception e) {
-            log.error("Critical error in simulation tick", e);
+            log.error("Simulation error", e);
+        }
+    }
+
+    private void simulateTakerOrder() {
+        long sequence = ringBuffer.next();
+        try {
+            OrderEntryEvent event = ringBuffer.get(sequence);
+            event.reset();
+            event.setSenderId("LT_" + (1 + random.nextInt(numberOfTakers)));
+            event.setSide(random.nextBoolean() ? "BUY" : "SELL");
+            event.setQty(10 + random.nextInt(200));
+            event.setLimit(event.getSide().equals("BUY") ? refPrice + 0.01 : refPrice - 0.01);
+            event.setParentId(System.nanoTime());
+        } finally {
+            ringBuffer.publish(sequence);
         }
     }
 
     public void stopSimulation() {
-        log.info("Stopping Market simulation...");
         scheduler.shutdown();
         lpPool.shutdown();
-        log.info("Market simulation stopped.");
+        disruptor.shutdown();
     }
 
-    public void addMarketUpdateListener(MarketUpdateListener l) {
-    	if (l != null) {
-    		this.aggregator.addMarketListener(l);
-    	}
-    }
-    
-    
-    public void addPricingListener(PricingListener l) {
-    	if (l != null) {
-    		this.engine.addListener(l);
-    	}
-    }
-    
-    public void addSignalListener(SignalListener l) {
-    	if (l != null) {
-    		this.signalEmitter.addListener(l);
-    	}
-    }
-    
-    public static void main(String[] args) throws InterruptedException {
-    	PriceAggregator aggregator = new PriceAggregator(NOOFLP);
-    	SignalEmitter signalEmitter = new SignalEmitter();
-    	
-    	MarketGenerator mg = new MarketGenerator(aggregator, signalEmitter, new PricingEngine(aggregator, signalEmitter, 0.01, 0.02, 0.15, 500));
-    	// Add this to see the final prices produced by the engine!
-    	mg.addMarketUpdateListener((bid, bSize, ask, aSize, vwapBid, vwapAsk)-> {
-    		log.info("&&&&&&MarketUpdate bid {} - {} | ask {} - {} | vwap bid {} ask {}", bid, bSize, ask, aSize, vwapBid, vwapAsk);
-    	});
-    	
-    	mg.addPricingListener((bid, bSize, ask, aSize, iBid, iAsk) -> {
-    		log.info(">>>>>>PricingEngine QUOTE: Bid {} | Ask {}", bid, ask);
-    	});
-    	
-    	mg.addSignalListener((k)->{
-    		log.info("#######Signal Change: {}", k);
-    	}); 
-        
-    	mg.startSimulation();
-    	Thread.sleep(30000);
-    	mg.stopSimulation();
-    }
+    // Accessors for External Wiring (Gateway)
+    public void addLPQuoteListener(LPQuoteListener l) { this.lpListeners.add(l); }
+    public void addPricingListener(PricingListener l) { this.engine.addListener(l); }
+    public void addSignalListener(SignalListener l) { this.signalEmitter.addListener(l); }
+    public void addBookListener(OrderBookUpdateListener l) { this.aggregator.addBookListener(l); }
+    public void addTcaListener(TCAUpdateListener l) { this.tcaManager.addListener(l); }
 }

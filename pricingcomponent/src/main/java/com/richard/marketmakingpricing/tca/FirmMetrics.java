@@ -18,4 +18,7 @@ public class FirmMetrics {
     public int getTotalFills() { return totalFills; }
     public double getTotalPnL() { return totalPnL; }
     public double getFillRate() { return fillRate; }
+    public String toString() {
+    	return String.format("FirmMetrics - totalOrder: %d  totalFills: %d, totalPnL: %f fillRate: %f", this.totalOrders, this.totalFills, this.totalPnL, this.fillRate);
+    }
 }

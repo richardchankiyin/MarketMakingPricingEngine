@@ -3,6 +3,7 @@ package com.richard.marketmakingpricing;
 import io.javalin.Javalin;
 import io.javalin.http.sse.SseClient;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -11,23 +12,31 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.richard.marketmakingpricing.tca.ClientMetrics;
+import com.richard.marketmakingpricing.tca.FirmMetrics;
+
 public class GatewayService {
+    private static final Logger log = LoggerFactory.getLogger(GatewayService.class);
+    
 	private final LPUpdate reusableLPUpdate = new LPUpdate();
 	private final QuoteUpdate reusableQuoteUpdate = new QuoteUpdate();
 	private final SignalUpdate reusableSignalUpdate = new SignalUpdate();
 	private final FullBookUpdate reusableBookUpdate = new FullBookUpdate();
-    private static final Logger log = LoggerFactory.getLogger(GatewayService.class);
+    private final TCAUpdate reusableTCAUpdate = new TCAUpdate();
+
     private final Javalin app;
     private final ConcurrentLinkedQueue<SseClient> lpclients = new ConcurrentLinkedQueue<>();
     private final ConcurrentLinkedQueue<SseClient> pricingengineclients = new ConcurrentLinkedQueue<>();
     private final ConcurrentLinkedQueue<SseClient> signalclients = new ConcurrentLinkedQueue<>();
     private final ConcurrentLinkedQueue<SseClient> bookclients = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<SseClient> tcaclients = new ConcurrentLinkedQueue<>();
     
     private final long intervalNanos;
     private final AtomicLong lastPushLPUpdateTime = new AtomicLong(0);
     private final AtomicLong lastPushPriceUpdateTime = new AtomicLong(0);    
     private final AtomicLong lastPushSignalUpdateTime = new AtomicLong(0);
     private final AtomicLong lastPushBookUpdateTime = new AtomicLong(0);
+    private final AtomicLong lastPushTCAUpdateTime = new AtomicLong(0);
 
     public GatewayService(int port, int intervalMs) {
     	// Convert MS to Nanos for higher precision comparison
@@ -60,6 +69,13 @@ public class GatewayService {
                 client.onClose(() -> bookclients.remove(client));
                 bookclients.add(client);
                 client.sendEvent("info", "Welcome to Gateway Full Book");
+            });
+    		
+    		config.routes.sse("/tca", client -> {
+                client.keepAlive();
+                client.onClose(() -> tcaclients.remove(client));
+                tcaclients.add(client);
+                client.sendEvent("info", "Welcome to Gateway TCA");
             });
     				
     	}).start(port);
@@ -147,26 +163,28 @@ public class GatewayService {
         }
     }
     
+    /** 
+     * Pushes tca update
+     */
+    public void pushTCAUpdate(ClientMetrics clientMetrics, FirmMetrics firmMetrics) {
+    	log.debug("Firm Metrics: {}", firmMetrics);
+    	if (tcaclients.isEmpty()) return;
+    	
+        long now = System.nanoTime();
+        if (now - lastPushTCAUpdateTime.get() < intervalNanos) return;
+        
+        
+        if (lastPushTCAUpdateTime.getAndSet(now) != now) {
+            synchronized (reusableTCAUpdate) {
+            	reusableTCAUpdate.updateMetrics(clientMetrics, firmMetrics);
+            	log.debug("sending event: {}", clientMetrics);
+                for (SseClient client : tcaclients) {
+                    client.sendEvent("tcaupdate", reusableTCAUpdate);
+                }
+            }
+        }
+    }
     
-    /**
-     * Broadcast OMS/TCA data (Orders, Fills, Parent/Child links)
-     */
-    public void pushOrderUpdate(Object data) {
-        //broadcast("order_event", data);
-    }
-
-    /**
-     * Broadcast PnL & Performance metrics
-     */
-    public void pushTcaUpdate(Object data) {
-        //broadcast("pnl_update", data);
-    }
-
-    private void broadcast(String eventName, Object data) {
-        //for (SseClient client : clients) {
-        //    client.sendEvent(eventName, data);
-        //}
-    }
 
     public void stop() {
         app.stop();
@@ -265,3 +283,29 @@ class FullBookUpdate {
     public NavigableMap<Double, Map<String, Integer>> getAsks() { return asks; }
     public long getTimestamp() { return timestamp; }
 }
+
+
+class TCAUpdate {
+    // The master state preserved across pushes
+    private final Map<String, ClientMetrics> allClientMetrics = new HashMap<>();
+    private FirmMetrics firmMetrics;
+    private long timestamp;
+
+    /**
+     * Updates the registry with a single client's new metrics.
+     * Note: This assumes single-threaded updates from the Gateway or 
+     * external synchronization.
+     */
+    public void updateMetrics(ClientMetrics update, FirmMetrics firmUpdate) {
+        // Simple put: replaces the old metrics object with the new one for this ID
+        this.allClientMetrics.put(update.getClientId(), update);
+        this.firmMetrics = firmUpdate;
+        this.timestamp = System.currentTimeMillis();
+    }
+
+    // Getters for serialization
+    public Map<String, ClientMetrics> getAllClientMetrics() { return allClientMetrics; }
+    public FirmMetrics getFirmMetrics() { return firmMetrics; }
+    public long getTimestamp() { return timestamp; }
+}
+
