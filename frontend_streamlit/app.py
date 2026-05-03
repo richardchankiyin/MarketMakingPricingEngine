@@ -198,9 +198,11 @@ with r2_col1:
 
 with r2_col2:
     st.subheader("Alpha Skew Signal")
-    if not st.session_state.signal_history.empty:
+    if not st.session_state.signal_history.empty and 'time' in st.session_state.signal_history.columns:
         st.line_chart(st.session_state.signal_history.set_index('time'))
         st.caption("💡 **+ve (Positive):** Bullish Bias (Buying Pressure) | **-ve (Negative):** Bearish Bias (Selling Pressure)")
+    else:
+        st.info("Waiting for alpha signal...") 
 
 with r2_col3:
     st.subheader("Mid Price (1m Candle)")
