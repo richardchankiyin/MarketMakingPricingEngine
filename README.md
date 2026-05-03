@@ -8,6 +8,7 @@ A production-grade, low-latency market-making simulator built with **Java 21**, 
 ## 🏗️ System Architecture & Data Flow
 
 The platform is architected with a strict separation of concerns between market data propagation and the order execution pipeline to ensure deterministic performance.
+```mermaid
 graph TD
     subgraph Market_Data_Pipeline_Northbound
         MG1[Market Generator] --> PA[Pricing Aggregator]
