@@ -1,4 +1,3 @@
-This README is designed to serve as a high-level technical brief for recruiters and quant leads. It highlights the sophisticated engineering choices that differentiate this engine from a standard trading simulator.
 
 ---
 
