@@ -40,7 +40,15 @@ public class MarketGenerator {
     private final int numberOfLPs;
     private final int numberOfTakers;
 
-    public MarketGenerator(double initialRefPrice, double volatility, int numberOfLPs, int numberOfTakers) {
+    
+    public MarketGenerator() {
+    	this(100, 0.05, 12, 20, 0.0005, 0.001, 0.06, 500);
+    }
+    
+    
+    public MarketGenerator(double initialRefPrice, double volatility
+    		, int numberOfLPs, int numberOfTakers, double pricingEngineTickSize, double pricingEngineMinProfitMargin
+    		, double pricingEngineMaxSignalSkew, int pricingEngineQuoteSize) {
         this.refPrice = initialRefPrice;
         this.volatility = volatility;
         this.numberOfLPs = numberOfLPs;
@@ -52,7 +60,7 @@ public class MarketGenerator {
         this.signalEmitter = new SignalEmitter();
         this.tcaManager = new TCAManager();
         this.omsHandler = new OMSHandler();
-        this.engine = new PricingEngine(aggregator, signalEmitter, 0.0005, 0.001, 0.06, 500);
+        this.engine = new PricingEngine(aggregator, signalEmitter, pricingEngineTickSize, pricingEngineMinProfitMargin, pricingEngineMaxSignalSkew, pricingEngineQuoteSize);
 
         // 2. Setup Disruptor
         this.disruptor = new Disruptor<>(
@@ -74,8 +82,11 @@ public class MarketGenerator {
         
         this.omsHandler.addOrderReplyListener(this.tcaManager); // For analytics
         
-        log.info("MarketGenerator Ecosystem initialized: Mid={}, LPs={}, Takers={}", 
-                 refPrice, numberOfLPs, numberOfTakers);
+        log.info("MarketGenerator initialized: initialRefPrice: {} volatility: {}, numberOfLPs: {}, numberOfTakers: {} pricingEngineTickSize: {} pricingEngineMinProfitMargin: {} pricingEngineMaxSignalSkew: {} pricingEngineQuoteSize: {}"
+        		, initialRefPrice, volatility
+        		, numberOfLPs, numberOfTakers
+        		, pricingEngineTickSize, pricingEngineMinProfitMargin
+        		, pricingEngineMaxSignalSkew, pricingEngineQuoteSize);
     }
 
     public void startSimulation() {
