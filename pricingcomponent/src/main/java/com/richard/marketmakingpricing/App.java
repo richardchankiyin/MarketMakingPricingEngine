@@ -10,9 +10,9 @@ public class App {
         // 1. Initialize External Gateway
         GatewayService gateway = new GatewayService(7070, 500);
 
-        // 2. Initialize MarketGenerator (The Ecosystem Container)
-        // Params: initialMid, volatility, noOfLPs, noOfTakers
-        MarketGenerator generator = new MarketGenerator(100, 0.05, 12, 20, 0.0005, 0.001, 0.06, 500);
+        // 2. Initialize MarketGenerator
+
+        MarketGenerator generator = new MarketGenerator(100, 0.05, 12, 20, 200, 1, 3, 0.0005, 0.001, 0.06, 500);
 
         // 3. Perform Gateway Wiring (Control Plane responsibilities)
         generator.addLPQuoteListener(gateway::pushLPUpdate);
