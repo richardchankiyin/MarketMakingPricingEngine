@@ -133,7 +133,24 @@ public class MarketGenerator {
     
     private void tick() {
         try {
-            refPrice += (random.nextDouble() - 0.5) * volatility;
+        	
+        	double move = (random.nextDouble() - 0.5) * volatility;
+
+        	// --- Event-Driven Shock Simulation ---
+        	// 0.1% chance of a "Fat Tail" outlier event
+        	if (random.nextDouble() < 0.001) { 
+        	    // Multiply base volatility by a factor of 3 to 5 (300% - 500%)
+        	    double shockMultiplier = 3.0 + (random.nextDouble() * 2.0);
+        	    double shockDirection = random.nextBoolean() ? 1.0 : -1.0;
+        	    
+        	    move = shockDirection * (volatility * shockMultiplier);
+        	    
+        	    log.warn("MARKET SHOCK TRIGGERED: Move is {}x standard volatility ({} absolute move)", 
+        	             String.format("%.2f", shockMultiplier), 
+        	             String.format("%.4f", move));
+        	}
+
+        	refPrice += move;
 
             // Update LPs
             for (int i = 1; i <= numberOfLPs; i++) {
