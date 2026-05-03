@@ -36,23 +36,25 @@ public class MarketGenerator {
     private final ExecutorService lpPool;
     private final ExecutorService ltPool;
     private final Random random = new Random();
-    private double refPrice;
+    // this needs to ensure visibility btw LP and LT threads
+    private volatile double refPrice;
     private final double volatility;
     private final int numberOfLPs;
     private final int numberOfLTs;
     private final int lpBidAskSizeFloor;
     private final int lpLatencyMillisec;
     private final int ltIntervalMillisec;
+    private final double ltpremiumratio;
     private final int pricingEngineQuoteSize;
     
     public MarketGenerator() {
-    	this(100, 0.05, 12, 20, 200, 1, 3, 0.0005, 0.001, 0.06, 500);
+    	this(100, 0.05, 12, 3, 200, 1, 50, 0.00075, 0.0005, 0.001, 0.1, 500);
     }
     
     
     public MarketGenerator(double initialRefPrice, double volatility
     		, int numberOfLPs, int numberOfLTs, int lpBidAskSizeFloor, int lpLatencyMillisec, int ltIntervalMillisec
-    		, double pricingEngineTickSize, double pricingEngineMinProfitMargin
+    		, double ltpremiumratio, double pricingEngineTickSize, double pricingEngineMinProfitMargin
     		, double pricingEngineMaxSignalSkew, int pricingEngineQuoteSize) {
         this.refPrice = initialRefPrice;
         this.volatility = volatility;
@@ -61,6 +63,7 @@ public class MarketGenerator {
         this.lpBidAskSizeFloor = lpBidAskSizeFloor;
         this.lpLatencyMillisec = lpLatencyMillisec;
         this.ltIntervalMillisec = ltIntervalMillisec;
+        this.ltpremiumratio = ltpremiumratio;
         this.pricingEngineQuoteSize = pricingEngineQuoteSize;
         // Thread Pools
         this.lpPool = Executors.newFixedThreadPool(this.numberOfLPs);
@@ -80,7 +83,7 @@ public class MarketGenerator {
                 OrderEntryEvent::new, 
                 1024, 
                 DaemonThreadFactory.INSTANCE,
-                ProducerType.SINGLE, 
+                ProducerType.MULTI, 
                 new YieldingWaitStrategy()
         );
         this.disruptor.handleEventsWith(omsHandler);
@@ -115,12 +118,12 @@ public class MarketGenerator {
         log.info("Price discovery phase initiated. Waiting for order book to stabilize...");
 
         // 2. Schedule Takers to start after a 5-second warm-up delay
-        /*
+
         scheduler.schedule(() -> {
             log.info("Warm-up complete. Launching Liquidity Taker activities.");
             startLTs();
-        }, 10, TimeUnit.SECONDS);
-        */
+        }, 5, TimeUnit.SECONDS);
+
     }
 
     
@@ -150,7 +153,9 @@ public class MarketGenerator {
 	                        l.onLPUpdate(lpId, refPrice, lpBid, lpSize, lpAsk, lpSize);
 	                    }
 	                    aggregator.onUpdate(lpId, lpBid, lpSize, lpAsk, lpSize);
-	                    Thread.sleep(lpLatencyMillisec);
+	                    
+	                    if (lpLatencyMillisec > 0)
+	                    	Thread.sleep(lpLatencyMillisec);
 	                }                		
                 	catch (InterruptedException ie) {
                 		log.warn("Thread interrupted unexpectedly", ie);
@@ -158,10 +163,6 @@ public class MarketGenerator {
                 });
             }
 
-            // Taker Logic
-            if (random.nextDouble() > 0.7) {
-                simulateTakerOrder();
-            }
         } catch (Exception e) {
             log.error("Simulation error", e);
         }
@@ -193,48 +194,31 @@ public class MarketGenerator {
     }
     
     private void publishTakerOrder(String takerId) {
-        long sequence = ringBuffer.next();
+        long sequence = ringBuffer.next(); // Claim the slot
         try {
             OrderEntryEvent event = ringBuffer.get(sequence);
-            event.reset();
+            event.reset(); // Ensure fields are cleared
+            
+            // Use local variables to determine values first
+            String side = random.nextBoolean() ? "BUY" : "SELL";
+            int quantity = 10 + random.nextInt(pricingEngineQuoteSize - 10);
+            double multiplier = "BUY".equals(side) ? (1 + ltpremiumratio) : (1 - ltpremiumratio);
+            double limitPrice = refPrice * multiplier;
+
+            // Now populate the event
             event.setSenderId(takerId);
-            event.setSide(random.nextBoolean() ? "BUY" : "SELL");
-            
-            // assuming LT monitors our order book offering. Therefore they will 
-            // never send size larger than we quote
-            int quantity = 10 + random.nextInt(pricingEngineQuoteSize - 10);            
+            event.setSide(side);
             event.setQty(quantity);
-            
-            // Use a slight offset from refPrice to simulate aggressive/passive limit orders
-            double limitPrice = event.getSide().equals("BUY") ? refPrice * 1.00005 : refPrice * (1 - 0.00005);
             event.setLimit(limitPrice);
             
-            long transactTime = System.nanoTime();
-            event.setTransactTime(transactTime);
-            event.setParentId(transactTime);
+            long now = System.nanoTime();
+            event.setTransactTime(now);
+            event.setParentId(now);
         } finally {
-            ringBuffer.publish(sequence);
+            ringBuffer.publish(sequence); // Commit the slot
         }
     }
-    
-    
-    @Deprecated
-    private void simulateTakerOrder() {
-        long sequence = ringBuffer.next();
-        try {
-            OrderEntryEvent event = ringBuffer.get(sequence);
-            event.reset();
-            event.setSenderId("LT_" + (1 + random.nextInt(this.numberOfLTs)));
-            event.setSide(random.nextBoolean() ? "BUY" : "SELL");
-            event.setQty(10 + random.nextInt(200));
-            event.setLimit(event.getSide().equals("BUY") ? refPrice + 0.01 : refPrice - 0.01);
-            long transactTime = System.nanoTime();
-            event.setTransactTime(transactTime);
-            event.setParentId(transactTime);
-        } finally {
-            ringBuffer.publish(sequence);
-        }
-    }
+
 
     public void stopSimulation() {
         scheduler.shutdown();
