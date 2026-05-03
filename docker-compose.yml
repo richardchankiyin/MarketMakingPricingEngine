@@ -1,4 +1,5 @@
 version: '3.8'
+
 services:
   backend:
     build: ./pricingcomponent
@@ -7,10 +8,33 @@ services:
       - "7070:7070"
     volumes:
       - ./logs:/app/logs
-    # Tweak variables here for the end-user
     environment:
-      - MIN_PROFIT_MARGIN=0.003
-      - TICK_SIZE=0.001
+      # --- Gateway Settings ---
+      - GATEWAY_PORT=7070
+      - GATEWAY_INTERVAL_MS=300       # Faster UI updates (3.3Hz)
+      
+      # --- Threading & Performance ---
+      - APP_THREADS=25                
+      
+      # --- Market Dynamics ---
+      - REF_PRICE=100.0
+      - VOLATILITY=0.08
+      
+      # --- Liquidity Providers (LPs) ---
+      - NO_LPS=12
+      - LP_SIZE_FLOOR=100
+      - LP_LATENCY_MS=1               # Low latency simulation
+      
+      # --- Liquidity Takers (LTs) ---
+      - NO_LTS=3
+      - LT_INTERVAL_MS=20
+      - LT_PREMIUM_RATIO=0.00065      # Aggressiveness of takers
+      
+      # --- Pricing Engine Core ---
+      - TICK_SIZE=0.001               
+      - MIN_PROFIT_MARGIN=0.003       
+      - MAX_SIGNAL_SKEW=0.1
+      - QUOTE_SIZE=500
     restart: unless-stopped
 
   frontend:
@@ -19,7 +43,6 @@ services:
     ports:
       - "8501:8501"
     environment:
-      # This tells the python script to use the internal Docker DNS and port
       - BACKEND_ADDR=mm-gateway-backend:7070
     depends_on:
       - backend
