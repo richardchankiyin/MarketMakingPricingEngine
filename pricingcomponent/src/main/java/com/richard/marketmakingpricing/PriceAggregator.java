@@ -32,10 +32,17 @@ public class PriceAggregator {
 	private final ReentrantLock lock = new ReentrantLock();
 	private final int lpCount;
 	private static final int ONUPDATETRYLOCK_MS = 5;
+	
+	private final ExecutorService threadPool;
 
-	public PriceAggregator(int lpCount) {
+	public PriceAggregator(int lpCount, ExecutorService threadPool) {
 		this.lpCount = lpCount;
 		this.lpRegistry = new ConcurrentHashMap<>(lpCount);
+		this.threadPool = threadPool;
+	}
+	
+	public PriceAggregator(int lpCount) {
+		this(lpCount, Executors.newFixedThreadPool(2));
 	}
 
 	public void addMarketListener(MarketUpdateListener listener) {
@@ -92,8 +99,8 @@ public class PriceAggregator {
 	private void triggerParallelUpdates() {
 		if (bids.isEmpty() || asks.isEmpty())
 			return;
-		CompletableFuture<Void> marketTask = CompletableFuture.runAsync(this::broadcastSummary);
-		CompletableFuture<Void> bookTask = CompletableFuture.runAsync(this::broadcastFullBook);
+		CompletableFuture<Void> marketTask = CompletableFuture.runAsync(this::broadcastSummary,threadPool);
+		CompletableFuture<Void> bookTask = CompletableFuture.runAsync(this::broadcastFullBook,threadPool);
 		// Blocking wait ensures the next LP tick won't overlap with current listener
 		// processing
 		CompletableFuture.allOf(marketTask, bookTask).join();

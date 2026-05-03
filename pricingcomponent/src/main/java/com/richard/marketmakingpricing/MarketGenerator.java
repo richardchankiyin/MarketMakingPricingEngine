@@ -1,5 +1,6 @@
 package com.richard.marketmakingpricing;
 
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.lmax.disruptor.RingBuffer;
 import com.lmax.disruptor.YieldingWaitStrategy;
 import com.lmax.disruptor.dsl.Disruptor;
@@ -32,9 +33,7 @@ public class MarketGenerator {
     private final RingBuffer<OrderEntryEvent> ringBuffer;
 
     // Simulation Threads & State
-    private final ScheduledExecutorService scheduler;
-    private final ExecutorService lpPool;
-    private final ExecutorService ltPool;
+    private final ScheduledExecutorService threadPool;
     private final Random random = new Random();
     // this needs to ensure visibility btw LP and LT threads
     private volatile double refPrice;
@@ -46,16 +45,18 @@ public class MarketGenerator {
     private final int ltIntervalMillisec;
     private final double ltpremiumratio;
     private final int pricingEngineQuoteSize;
+    // this govern the size of threadpool, usually = numberOfLPs + numberOfLTs + Disruptor (1) + PriceAggregator (2) + Internal Simulation threads (2)
+    private final int noOfThreads;
     
     public MarketGenerator() {
-    	this(100, 0.05, 12, 3, 200, 1, 50, 0.00075, 0.0005, 0.001, 0.1, 500);
+    	this(100, 0.05, 12, 3, 200, 1, 50, 0.00075, 0.0005, 0.001, 0.1, 500, 20);
     }
     
     
     public MarketGenerator(double initialRefPrice, double volatility
     		, int numberOfLPs, int numberOfLTs, int lpBidAskSizeFloor, int lpLatencyMillisec, int ltIntervalMillisec
     		, double ltpremiumratio, double pricingEngineTickSize, double pricingEngineMinProfitMargin
-    		, double pricingEngineMaxSignalSkew, int pricingEngineQuoteSize) {
+    		, double pricingEngineMaxSignalSkew, int pricingEngineQuoteSize, int nofThreads) {
         this.refPrice = initialRefPrice;
         this.volatility = volatility;
         this.numberOfLPs = numberOfLPs;
@@ -65,13 +66,17 @@ public class MarketGenerator {
         this.ltIntervalMillisec = ltIntervalMillisec;
         this.ltpremiumratio = ltpremiumratio;
         this.pricingEngineQuoteSize = pricingEngineQuoteSize;
+        // 1. Create a single, named ThreadFactory
+        ThreadFactory engineFactory = new ThreadFactoryBuilder()
+                .setNameFormat("market-generator-threadpool-%d")
+                .setDaemon(true)
+                .build();
+        this.noOfThreads = nofThreads;
         // Thread Pools
-        this.lpPool = Executors.newFixedThreadPool(this.numberOfLPs);
-        this.ltPool = Executors.newFixedThreadPool(this.numberOfLTs);
-        this.scheduler = Executors.newSingleThreadScheduledExecutor();
+        this.threadPool = Executors.newScheduledThreadPool(this.noOfThreads, engineFactory);
         
         // 1. Initialize Ecosystem Components
-        this.aggregator = new PriceAggregator(this.numberOfLPs);
+        this.aggregator = new PriceAggregator(this.numberOfLPs, threadPool);
         this.signalEmitter = new SignalEmitter();
         this.tcaManager = new TCAManager();
         this.omsHandler = new OMSHandler();
@@ -82,7 +87,7 @@ public class MarketGenerator {
         this.disruptor = new Disruptor<>(
                 OrderEntryEvent::new, 
                 1024, 
-                DaemonThreadFactory.INSTANCE,
+                engineFactory,
                 ProducerType.MULTI, 
                 new YieldingWaitStrategy()
         );
@@ -113,13 +118,13 @@ public class MarketGenerator {
 
         // 1. Start the recurring Market Tick immediately.
         // LPs start quoting and the book begins to fill.
-        scheduler.scheduleAtFixedRate(this::tick, 0, 10, TimeUnit.MILLISECONDS);
+    	threadPool.scheduleAtFixedRate(this::tick, 0, 10, TimeUnit.MILLISECONDS);
         
         log.info("Price discovery phase initiated. Waiting for order book to stabilize...");
 
         // 2. Schedule Takers to start after a 5-second warm-up delay
 
-        scheduler.schedule(() -> {
+        threadPool.schedule(() -> {
             log.info("Warm-up complete. Launching Liquidity Taker activities.");
             startLTs();
         }, 5, TimeUnit.SECONDS);
@@ -155,7 +160,7 @@ public class MarketGenerator {
             // Update LPs
             for (int i = 1; i <= numberOfLPs; i++) {
                 final String lpId = "LP_" + i;
-                lpPool.submit(() -> {
+                threadPool.submit(() -> {
                 	
                 	// individual LP runs as dedicated thread/runnable here
                 	
@@ -189,7 +194,7 @@ public class MarketGenerator {
     private void startLTs() {
         for (int i = 1; i <= numberOfLTs; i++) {
             final String takerId = "LT_" + i;
-            ltPool.submit(() -> {
+            threadPool.submit(() -> {
                 log.info("LT: {} is now active", takerId);
                 while (!Thread.currentThread().isInterrupted()) {
                     try {
@@ -238,10 +243,8 @@ public class MarketGenerator {
 
 
     public void stopSimulation() {
-        scheduler.shutdown();
-        lpPool.shutdown();
-        ltPool.shutdown();
         disruptor.shutdown();
+        threadPool.shutdown();
     }
 
     // Accessors for External Wiring (Gateway)
