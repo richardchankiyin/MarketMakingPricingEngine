@@ -6,6 +6,7 @@ services:
     container_name: mm-gateway-backend
     ports:
       - "7070:7070"
+      - "9010:9010"
     volumes:
       - ./logs:/app/logs
     environment:

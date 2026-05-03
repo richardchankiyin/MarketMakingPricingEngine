@@ -18,6 +18,17 @@ COPY --from=build /app/target/*.jar app.jar
 
 RUN mkdir logs
 EXPOSE 7070
+EXPOSE 9010
 
 # Optimized for your high-frequency metrics
-CMD ["java", "-XX:+UseZGC", "-jar", "app.jar"]
+ENTRYPOINT ["java", \
+    "-XX:+UseZGC", \
+    "-XX:+ZGenerational", \
+    "-Dcom.sun.management.jmxremote", \
+    "-Dcom.sun.management.jmxremote.port=9010", \
+    "-Dcom.sun.management.jmxremote.rmi.port=9010", \
+    "-Dcom.sun.management.jmxremote.local.only=false", \
+    "-Dcom.sun.management.jmxremote.authenticate=false", \
+    "-Dcom.sun.management.jmxremote.ssl=false", \
+    "-Djava.rmi.server.hostname=localhost", \
+    "-jar", "app.jar"]

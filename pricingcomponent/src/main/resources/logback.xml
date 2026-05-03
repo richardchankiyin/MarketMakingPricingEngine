@@ -7,7 +7,7 @@
 		<rollingPolicy
 			class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
 			<!-- Rotate daily or when size exceeds 50MB -->
-			<fileNamePattern>${LOG_DIR}/orders.%d{yyyy-MM-dd}.%i.log
+			<fileNamePattern>${LOG_DIR}/orders.%d{yyyy-MM-dd}.%i.log.gz
 			</fileNamePattern>
 			<maxFileSize>50MB</maxFileSize>
 			<maxHistory>30</maxHistory>
@@ -26,7 +26,7 @@
 		<rollingPolicy
 			class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
 			<!-- Rotate daily or when size exceeds 50MB -->
-			<fileNamePattern>${LOG_DIR}/applogs.%d{yyyy-MM-dd}.%i.log
+			<fileNamePattern>${LOG_DIR}/applogs.%d{yyyy-MM-dd}.%i.log.gz
 			</fileNamePattern>
 			<maxFileSize>50MB</maxFileSize>
 			<maxHistory>30</maxHistory>
