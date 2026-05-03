@@ -8,7 +8,35 @@ A production-grade, low-latency market-making simulator built with **Java 21**, 
 ## 🏗️ System Architecture & Data Flow
 
 The platform is architected with a strict separation of concerns between market data propagation and the order execution pipeline to ensure deterministic performance.
+graph TD
+    subgraph Market_Data_Pipeline_Northbound
+        MG1[Market Generator] --> PA[Pricing Aggregator]
+        PA --> SE[Signal Emitter]
+        SE --> PE[Pricing Engine]
+        PE --> OMS_D[OMS Discovery]
+    end
 
+    subgraph Execution_Pipeline_Southbound
+        MG2[Market Generator Takers] --> DIS[LMAX Disruptor Ring Buffer]
+        DIS --> OMS_E[OMS Execution]
+        OMS_E --> TCA[TCA Manager]
+        OMS_E --> HEDGE[Hedging Logic]
+    end
+
+    subgraph Gateway_Layer
+        OMS_D --> GS[Gateway Service]
+        TCA --> GS
+        GS --> SSE[SSE Publisher]
+    end
+
+    subgraph Visualization
+        SSE --> ST[Streamlit Dashboard]
+        ST --> UI[Plotly Charts / OHLC]
+    end
+
+    style DIS fill:#f96,stroke:#333,stroke-width:2px
+    style GS fill:#69f,stroke:#333,stroke-width:2px
+    style ST fill:#00CC96,stroke:#333,stroke-width:2px
 
 
 ### 1. Market Data & Pricing Pipeline (Northbound)
