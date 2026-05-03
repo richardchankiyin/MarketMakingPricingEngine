@@ -5,7 +5,6 @@ import com.lmax.disruptor.RingBuffer;
 import com.lmax.disruptor.YieldingWaitStrategy;
 import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.dsl.ProducerType;
-import com.lmax.disruptor.util.DaemonThreadFactory;
 import com.richard.marketmakingpricing.oms.*;
 import com.richard.marketmakingpricing.tca.TCAManager;
 import com.richard.marketmakingpricing.tca.TCAUpdateListener;
@@ -104,13 +103,14 @@ public class MarketGenerator {
         this.omsHandler.addOrderReplyListener(this.tcaManager); // For analytics
         
         log.info("MarketGenerator initialized: initialRefPrice: {} volatility: {}, numberOfLPs: {}, numberOfLTs: {} "
-        		+ "lpBidAskSizeFloor: {} lpLatencyMillisec: {} ltIntervalMillisec: {} pricingEngineTickSize: {} pricingEngineMinProfitMargin: {} "
-        		+ "pricingEngineMaxSignalSkew: {} pricingEngineQuoteSize: {}"
+        		+ "lpBidAskSizeFloor: {} lpLatencyMillisec: {} ltIntervalMillisec: {} ltpremiumratio: {} pricingEngineTickSize: {} pricingEngineMinProfitMargin: {} "
+        		+ "pricingEngineMaxSignalSkew: {} pricingEngineQuoteSize: {} noofThreads: {}"
         		, initialRefPrice, volatility
         		, numberOfLPs, numberOfLTs, lpBidAskSizeFloor
-        		, lpLatencyMillisec, ltIntervalMillisec
+        		, lpLatencyMillisec, ltIntervalMillisec, ltpremiumratio
         		, pricingEngineTickSize, pricingEngineMinProfitMargin
-        		, pricingEngineMaxSignalSkew, pricingEngineQuoteSize);
+        		, pricingEngineMaxSignalSkew, pricingEngineQuoteSize
+        		, noOfThreads);
     }
 
     public void startSimulation() {

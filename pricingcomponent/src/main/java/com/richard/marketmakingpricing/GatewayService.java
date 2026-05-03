@@ -39,10 +39,17 @@ public class GatewayService {
     private final AtomicLong lastPushTCAUpdateTime = new AtomicLong(0);
 
     public GatewayService(int port, int intervalMs) {
+    	this(port,intervalMs,true);
+    }
+    
+    public GatewayService(int port, int intervalMs, boolean useVirtualThread) {
     	// Convert MS to Nanos for higher precision comparison
         this.intervalNanos = intervalMs * 1_000_000L;
+
         
     	app = Javalin.create(config -> {
+    		config.concurrency.useVirtualThreads = useVirtualThread;
+    		
     		config.routes.sse("/lpquote", client -> {
     		    client.keepAlive();
     		    client.onClose(() -> lpclients.remove(client));
