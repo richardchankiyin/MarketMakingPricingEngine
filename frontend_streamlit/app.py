@@ -60,22 +60,22 @@ def sse_worker(url, state_key):
                                 'ask': data.get('ask', 0.0), 'askSize': data.get('askSize', 0),
                                 'mid': mid
                             }
-                            st.session_state.price_history = pd.concat([st.session_state.price_history, pd.DataFrame([new_entry])]).tail(15)
+                            st.session_state.price_history = pd.concat([st.session_state.price_history, pd.DataFrame([new_entry])], ignore_index=True).tail(15)
                             
                             # 1-minute OHLC Aggregation
                             current_min = now.replace(second=0, microsecond=0)
-                            if not st.session_state.ohlc_data.empty and st.session_state.ohlc_data.iloc[-1]['time'] == current_min:
+                            if not st.session_state.ohlc_data.empty and st.session_state.ohlc_data['time'].iloc[-1] == current_min:
                                 idx = st.session_state.ohlc_data.index[-1]
                                 st.session_state.ohlc_data.at[idx, 'high'] = max(st.session_state.ohlc_data.at[idx, 'high'], mid)
                                 st.session_state.ohlc_data.at[idx, 'low'] = min(st.session_state.ohlc_data.at[idx, 'low'], mid)
                                 st.session_state.ohlc_data.at[idx, 'close'] = mid
                             else:
                                 new_candle = {'time': current_min, 'open': mid, 'high': mid, 'low': mid, 'close': mid}
-                                st.session_state.ohlc_data = pd.concat([st.session_state.ohlc_data, pd.DataFrame([new_candle])]).tail(20)
+                                st.session_state.ohlc_data = pd.concat([st.session_state.ohlc_data, pd.DataFrame([new_candle])], ignore_index=True).tail(20)
 
                         elif state_key == 'signal':
                             sig_entry = {'time': timestamp_str, 'signal': data.get('signal', 0.0)}
-                            st.session_state.signal_history = pd.concat([st.session_state.signal_history, pd.DataFrame([sig_entry])]).tail(30)
+                            st.session_state.signal_history = pd.concat([st.session_state.signal_history, pd.DataFrame([sig_entry])], ignore_index=True).tail(30)
                             
                         elif state_key == 'lp':
                             lp_id = data.get('lpId', 'Unknown')
