@@ -148,7 +148,7 @@ After running the `docker compose` command, you should see the following sequenc
  ✔ Network marketmakingpricingengine_default Created
  ✔ Container mm-gateway-backend               Started
  ✔ Container mm-gateway-ui                    Started
-
+```
 
 ### 🙏 Acknowledgments
 Developed in collaboration with **Gemini (Google AI)** for architecture design and performance optimization.
