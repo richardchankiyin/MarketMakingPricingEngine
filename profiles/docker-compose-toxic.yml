@@ -1,0 +1,47 @@
+services:
+  backend:
+    build: ./pricingcomponent
+    container_name: mm-gateway-backend
+    ports:
+      - "7070:7070"
+    volumes:
+      - ./logs:/app/logs
+    environment:
+      # --- Gateway Settings ---
+      - GATEWAY_PORT=7070
+      - GATEWAY_INTERVAL_MS=300       # Faster UI updates (3.3Hz)
+      
+      # --- Threading & Performance ---
+      - APP_THREADS=25                
+      
+      # --- Market Dynamics ---
+      - REF_PRICE=100.0
+      - VOLATILITY=0.08
+      
+      # --- Liquidity Providers (LPs) ---
+      - NO_LPS=12
+      - LP_SIZE_FLOOR=100
+      - LP_LATENCY_MS=1               # Low latency simulation
+      
+      # --- Liquidity Takers (LTs) ---
+      - NO_LTS=15
+      - LT_INTERVAL_MS=20
+      - LT_PREMIUM_RATIO=0.00065      # Aggressiveness of takers
+      
+      # --- Pricing Engine Core ---
+      - TICK_SIZE=0.001               
+      - MIN_PROFIT_MARGIN=0.003       
+      - MAX_SIGNAL_SKEW=0.1
+      - QUOTE_SIZE=500
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend_streamlit
+    container_name: mm-gateway-ui
+    ports:
+      - "8501:8501"
+    environment:
+      - BACKEND_ADDR=mm-gateway-backend:7070
+    depends_on:
+      - backend
+    restart: unless-stopped

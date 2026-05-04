@@ -1,13 +1,12 @@
 
 # 🛡️ High-Frequency Market Making & Pricing Engine
 
-A low-latency market-making simulator built with **Java 21**, the **LMAX Disruptor**, and **Javalin**. This platform simulates the complete lifecycle of a quantitative trading operation—from synthetic liquidity generation to toxic flow defense and real-time TCA (Transaction Cost Analysis).
+A low-latency market-making simulator built with **Java 21**, the **LMAX Disruptor**, **Javalin** and **Streamlit** . This platform simulates the complete lifecycle of a quantitative trading operation—from synthetic liquidity generation to toxic flow defense and real-time TCA (Transaction Cost Analysis).
 
 ## 🖥️ Platform Monitor
 The Streamlit-based dashboard provides a high-fidelity view of the engine's internal state, updated in real-time via Server-Sent Events (SSE).
 
-![Market Making Platform Monitor](https://img.upanh.tv/2024/03/dashboard_demo.png) *(Note: Replace with your actual local file path, e.g., `./docs/screenshot.png`)* [source: 1]
-
+![Market Making Platform Monitor](./docs/screenshots/normal_fullscreen.png)
 ### UI Component Breakdown
 The dashboard is divided into four critical monitoring zones:
 
