@@ -111,7 +111,7 @@ Before running the simulation, ensure you have the following installed:
    * Recommended for monitoring Scenario D's performance via JMX on port `9010`.
    * [Download JMC](https://www.oracle.com/java/technologies/jdk-mission-control-downloads.html)
 
-3. **Resources**:
+3. **Resources (Optional)**:
    * Minimum **4GB RAM** allocated to Docker to support the High-Performance JVM profile (Scenario D).
 
 ## ⚡ Technical Highlights
@@ -132,9 +132,23 @@ docker-compose up --build
 # If you want to run the 'Toxic Arbitrage' stress-test scenario
 docker compose -f profiles/docker-compose-toxic.yml --project-directory . up --build -d
 
-# Browse
-http://localhost:8501
 ```
+### 🔍 Verifying the Deployment
+
+After running the `docker compose` command, you should see the following sequence in your terminal:
+
+1. **Build Phase**: Docker will build the Backend (Java 21) and Frontend (Python 3.12) images. If you see `CACHED`, Docker is reusing layers from previous builds.
+2. **Network Creation**: A bridge network named `marketmakingpricingengine_default` is created to allow inter-container communication[cite: 1].
+3. **Container Startup**: Two containers will transition to the `Started` state:
+    * `mm-gateway-backend`: The Java trading engine[cite: 1].
+    * `mm-gateway-ui`: The Streamlit dashboard[cite: 1].
+
+**Terminal Success Output:**
+```text
+ ✔ Network marketmakingpricingengine_default Created
+ ✔ Container mm-gateway-backend               Started
+ ✔ Container mm-gateway-ui                    Started
+
 
 ### 🙏 Acknowledgments
 Developed in collaboration with **Gemini (Google AI)** for architecture design and performance optimization.
