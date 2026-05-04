@@ -84,10 +84,13 @@ This engine demonstrates specific quantitative trading regimes via pre-configure
 
 ```bash
 # Start the standard simulation
-docker-compose up --build
+docker-compose up --build -d
 
-# Run the 'Toxic Arbitrage' stress-test scenario
-docker-compose -f docker-compose.yml -f deploy_profiles/docker-compose.toxic.yml up
+# If you want to run the 'Toxic Arbitrage' stress-test scenario
+docker compose -f profiles/docker-compose-toxic.yml --project-directory . up --build -d
+
+# Browse
+http://localhost:8501
 ```
 
 ### 🙏 Acknowledgments
