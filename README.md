@@ -189,6 +189,8 @@ chmod +x oms_perf_report.sh pricing_perf_report.sh
 ### 📋 OMS Performance Audit
 **Target Logs**: `logs/orders.log*` (Including `.gz` archives)
 
+Sample outcome:
+
 | Metric | Value | Interpretation |
 | :--- | :--- | :--- |
 | **Total Orders** | 18,328 | Sufficient sample size for statistical significance. |
@@ -201,6 +203,8 @@ chmod +x oms_perf_report.sh pricing_perf_report.sh
 
 ### 🧩 Component Latency Breakdown
 **Target Logs**: `logs/orders.log` & `logs/applogs.log`
+
+Sample outcome:
 
 | Component | Avg Latency | Throughput (Count) | Role in Pipeline |
 | :--- | :--- | :--- | :--- |
