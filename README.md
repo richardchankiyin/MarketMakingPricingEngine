@@ -86,10 +86,18 @@ graph TD
 ---
 
 ## 📊 Market Microstructure Scenarios
-This engine demonstrates specific quantitative trading regimes via pre-configured Docker profiles:
 
-*   **Scenario A: The "Toxic Arbitrage"**: High Volatility (0.08) + 15 aggressive Takers. Demonstrates the "picked off" effect where the MM suffers from stale quote arbitrage[cite: 1].
-*   **Scenario B: High-Performance Execution**: Memory-pinned JVM (`-Xms4g`), NUMA optimization, and Generative ZGC ensuring sub-millisecond GC pauses[cite: 1].
+The engine supports multiple deployment profiles to simulate different market conditions and hardware optimizations[cite: 1]. Use these to test the robustness of the pricing logic and JVM stability.
+
+| Scenario | Profile Name | Key Dynamics | Primary Objective |
+| :--- | :--- | :--- | :--- |
+| **A** | **Normal Run** | Default liquidity parameters and taker behavior[cite: 1]. | Establish baseline performance and stable PnL tracking[cite: 1]. |
+| **B** | **Toxic Arbitrage** | High Volatility ($0.08$) + $15$ Aggressive Takers[cite: 1]. | Observe "Stale Quote Arbitrage" and the impact of adverse selection[cite: 1]. |
+| **C** | **High Rejection** | Ultra-low Profit Margin + Low Premium Ratio. | Observe high order rejection rates due to "Price Improvement" failures[cite: 1]. |
+| **D** | **High Performance** | JVM Pinned ($-Xms4g$), NUMA aware, & Generative ZGC. | Demonstrate sub-1ms GC pauses and maximized tick-to-trade throughput[cite: 1]. |
+
+> **Note**: Scenarios B, C, and D are triggered by passing specific compose files using the `-f` flag during startup[cite: 1].
+
 
 ## 🛠️ Technology Stack
 
@@ -126,12 +134,14 @@ Before running the simulation, ensure you have the following installed:
 ## 🚀 Getting Started
 
 ```bash
-# Start the standard simulation
+# Scenario A - Start the standard simulation
 docker-compose up --build
 
-# If you want to run the 'Toxic Arbitrage' stress-test scenario
+# Scenario B - 'Toxic Arbitrage' stress-test scenario
 docker compose -f profiles/docker-compose-toxic.yml --project-directory . up --build -d
 
+# Scenario C - 'High Rejection' stress-test scenario
+docker compose -f profiles/docker-compose-rejection.yml --project-directory . up --build -d
 ```
 ### 🔍 Verifying the Deployment
 
