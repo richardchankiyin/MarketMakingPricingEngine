@@ -3,7 +3,11 @@ package com.richard.marketmakingpricing;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 public class PricingEngine implements MarketUpdateListener, SignalListener {
+	private static final Logger log = LoggerFactory.getLogger(PricingEngine.class);
     private final SignalEmitter signalEmitter;
     private final PriceAggregator aggregator;
     
@@ -58,6 +62,7 @@ public class PricingEngine implements MarketUpdateListener, SignalListener {
     }
 
     private void refreshQuote() {
+    	long before = System.nanoTime();
         // Defensive check for uninitialized data
         if (bestBid <= 0 || bestAsk <= 0 || bestBid >= bestAsk) return;
 
@@ -92,6 +97,7 @@ public class PricingEngine implements MarketUpdateListener, SignalListener {
 
         // 5. Atomic Push to Listeners
         notifyListeners(localMyBid, quoteSize, localMyAsk, quoteSize, localIdealBid, localIdealAsk);
+        log.info("time diff in μs: {}", System.nanoTime() - before);
     }
 
     private void notifyListeners(double b, int bs, double a, int as, double ib, double ia) {

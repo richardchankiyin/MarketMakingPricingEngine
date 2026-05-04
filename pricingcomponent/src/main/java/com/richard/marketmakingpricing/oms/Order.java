@@ -33,4 +33,9 @@ public abstract class Order {
     // Static FIX Tags
     public String getOrdType() { return "2"; }      // Limit
     public String getTimeInForce() { return "4"; }  // FOK
+    
+    public String toString() {
+    	return String.format("Order - [clOrdId:%s|senderCompID:%s|targetCompID:%s|isBuy:%s|orderQty:%s|price:%f|transactTime:%d]",
+    			this.clOrdID, this.senderCompID, this.targetCompID, this.isBuy, this.orderQty, this.price, this.transactTime);
+    }
 }

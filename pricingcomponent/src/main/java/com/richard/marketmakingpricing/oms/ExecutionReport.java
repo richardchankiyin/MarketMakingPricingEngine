@@ -37,4 +37,9 @@ public abstract class ExecutionReport {
     public long getTransactTime() { return transactTime; }
     public Integer getRejectReason() { return rejectReason; }
     public String getText() { return text; }
+    
+    public String toString() {
+    	return String.format("ExecutionReport[execID:%d|clOrdID:%d|senderCompID:%s|targetCompID:%s|ordStatus:%s|lastPx:%f|lastQty:%d|transactTime:%d|rejectReason:%d]"
+    			, this.execID, this.clOrdID, this.senderCompID, this.targetCompID, this.ordStatus, this.lastPx, this.lastQty, this.transactTime, this.rejectReason);
+    }
 }

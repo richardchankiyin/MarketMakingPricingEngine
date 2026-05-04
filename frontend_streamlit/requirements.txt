@@ -12,5 +12,8 @@ numpy==1.26.4
 # Networking
 requests==2.31.0
 
+# plotly for candle stick chart
+plotly==5.18.0
+
 # Optional: For future API interactions or OMS management
 urllib3==2.2.1

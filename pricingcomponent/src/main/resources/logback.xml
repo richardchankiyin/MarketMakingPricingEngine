@@ -1,17 +1,75 @@
 <configuration>
-    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
-        <encoder>
-            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
-        </encoder>
-    </appender>
+	<property name="LOG_DIR" value="logs" />
 
-    <appender name="ASYNC" class="ch.qos.logback.classic.AsyncAppender">
-        <appender-ref ref="STDOUT" />
-        <queueSize>512</queueSize>
-        <discardingThreshold>0</discardingThreshold>
-    </appender>
+	<appender name="ORDER_FILE"
+		class="ch.qos.logback.core.rolling.RollingFileAppender">
+		<file>${LOG_DIR}/orders.log</file>
+		<rollingPolicy
+			class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+			<!-- Rotate daily or when size exceeds 50MB -->
+			<fileNamePattern>${LOG_DIR}/orders.%d{yyyy-MM-dd}.%i.log.gz
+			</fileNamePattern>
+			<maxFileSize>50MB</maxFileSize>
+			<maxHistory>30</maxHistory>
+			<totalSizeCap>2GB</totalSizeCap>
+		</rollingPolicy>
+		<encoder>
+			<!-- %logger{35} will shorten com.richard.marketmakingpricing.oms.OrderManager 
+				to c.r.m.o.OrderManager -->
+			<pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{35} - %msg%n</pattern>
+		</encoder>
+	</appender>
 
-    <root level="INFO">
-        <appender-ref ref="ASYNC" />
-    </root>
+	<appender name="APP_LOGS"
+		class="ch.qos.logback.core.rolling.RollingFileAppender">
+		<file>${LOG_DIR}/applogs.log</file>
+		<rollingPolicy
+			class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+			<!-- Rotate daily or when size exceeds 50MB -->
+			<fileNamePattern>${LOG_DIR}/applogs.%d{yyyy-MM-dd}.%i.log.gz
+			</fileNamePattern>
+			<maxFileSize>50MB</maxFileSize>
+			<maxHistory>30</maxHistory>
+			<totalSizeCap>2GB</totalSizeCap>
+		</rollingPolicy>
+		<encoder>
+			<!-- %logger{35} will shorten com.richard.marketmakingpricing.oms.OrderManager 
+				to c.r.m.o.OrderManager -->
+			<pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{35} - %msg%n</pattern>
+		</encoder>
+	</appender>
+
+	<!-- Async Wrapper to prevent I/O blocking -->
+	<appender name="ASYNC_ORDER"
+		class="ch.qos.logback.classic.AsyncAppender">
+		<appender-ref ref="ORDER_FILE" />
+		<queueSize>1024</queueSize>
+		<discardingThreshold>0</discardingThreshold> <!-- Don't drop events -->
+	</appender>
+
+	<appender name="ASYNC_APP"
+		class="ch.qos.logback.classic.AsyncAppender">
+		<appender-ref ref="APP_LOGS" />
+		<queueSize>1024</queueSize>
+		<discardingThreshold>0</discardingThreshold> <!-- Don't drop events -->
+	</appender>
+
+	<logger name="com.richard.marketmakingpricing" level="INFO"
+		additivity="false">
+		<appender-ref ref="ASYNC_APP" />
+	</logger>
+
+	<logger name="com.richard.marketmakingpricing.oms" level="INFO"
+		additivity="false">
+		<appender-ref ref="ASYNC_ORDER" />
+	</logger>
+
+	<logger name="com.richard.marketmakingpricing.tca" level="INFO"
+		additivity="false">
+		<appender-ref ref="ASYNC_ORDER" />
+	</logger>
+
+	<root level="INFO">
+		<appender-ref ref="ASYNC_APP" />
+	</root>
 </configuration>

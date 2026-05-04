@@ -55,7 +55,7 @@ public class OMSHandler implements EventHandler<OrderEntryEvent>, PricingListene
 
     @Override
     public void onEvent(OrderEntryEvent event, long sequence, boolean endOfBatch) {
-        final long now = System.currentTimeMillis();
+        final long now = event.getTransactTime();
         final boolean isBuy = event.getSide().equalsIgnoreCase("BUY");
         
         LTOrder ltOrder = new LTOrder(event.getParentId(), event.getSenderId(), isBuy, event.getQty(), event.getLimit(), now);
@@ -126,11 +126,6 @@ public class OMSHandler implements EventHandler<OrderEntryEvent>, PricingListene
     }
 
     private void processFill(LTOrder order, double ltexecprice, List<HedgeOrder> slices, long now) {
-        //double totalNotional = 0;
-        //for (HedgeOrder h : slices) {
-        //    totalNotional += (h.getPrice() * h.getOrderQty());
-        //}
-        //double avgPrice = totalNotional / order.getOrderQty();
 
         // Ensure LTExecutionReport has getOrdStatus() and getLastQty()
         order.setExecutionReport(new LTExecutionReport(order.getSenderCompID(), order.getClOrdID(), 
@@ -154,6 +149,7 @@ public class OMSHandler implements EventHandler<OrderEntryEvent>, PricingListene
     }
 
     private void broadcast(LTOrder order) {
+    	log.info("[Order Handled: {}][Time Elapsed in μs {}]", order, System.nanoTime() - order.getTransactTime());
         for (OrderUpdateListener l : replyListeners) {
             l.onOMSReply(order);
         }

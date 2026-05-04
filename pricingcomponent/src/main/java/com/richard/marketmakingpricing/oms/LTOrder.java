@@ -17,4 +17,11 @@ public class LTOrder extends Order {
     
     public void addHedgeOrder(HedgeOrder ho) { this.hedgeOrders.add(ho); }
     public List<HedgeOrder> getHedgeOrders() { return hedgeOrders; }
+    
+    public String toString() {
+    	StringBuilder strBuilder = new StringBuilder(super.toString());
+    	strBuilder.append("LTExecutionReport:[").append(executionReport).append("]")
+    	.append("HedgeOrders:[").append(hedgeOrders).append("]");
+    	return strBuilder.toString();
+    }
 }
