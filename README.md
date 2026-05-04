@@ -93,8 +93,7 @@ The engine supports multiple deployment profiles to simulate different market co
 | :--- | :--- | :--- | :--- |
 | **A** | **Normal Run** | Default liquidity parameters and taker behavior[cite: 1]. | Establish baseline performance and stable PnL tracking[cite: 1]. |
 | **B** | **Toxic Arbitrage** | High Volatility ($0.08$) + $15$ Aggressive Takers[cite: 1]. | Observe "Stale Quote Arbitrage" and the impact of adverse selection[cite: 1]. |
-| **C** | **High Rejection** | Ultra-low Profit Margin + Low Premium Ratio. | Observe high order rejection rates due to "Price Improvement" failures[cite: 1]. |
-| **D** | **High Performance** | JVM Pinned ($-Xms4g$), NUMA aware, & Generative ZGC. | Demonstrate sub-1ms GC pauses and maximized tick-to-trade throughput[cite: 1]. |
+| **C** | **High Performance** | JVM Pinned ($-Xms4g$), NUMA aware, & Generative ZGC. | Demonstrate sub-1ms GC pauses and maximized tick-to-trade throughput[cite: 1]. |
 
 > **Note**: Scenarios B, C, and D are triggered by passing specific compose files using the `-f` flag during startup[cite: 1].
 
@@ -140,8 +139,8 @@ docker-compose up --build
 # Scenario B - 'Toxic Arbitrage' stress-test scenario
 docker compose -f profiles/docker-compose-toxic.yml --project-directory . up --build -d
 
-# Scenario C - 'High Rejection' stress-test scenario
-docker compose -f profiles/docker-compose-rejection.yml --project-directory . up --build -d
+# Scenario C - 'High Performance' stress-test scenario (should have sufficient memory for this run!!!)
+docker compose -f profiles/docker-compose-highperf.yml --project-directory . up --build -d
 ```
 ### 🔍 Verifying the Deployment
 
@@ -159,6 +158,11 @@ After running the `docker compose` command, you should see the following sequenc
  ✔ Container mm-gateway-backend               Started
  ✔ Container mm-gateway-ui                    Started
 ```
+
+### 🖥️ Accessing the Dashboard
+Once the Docker containers are healthy, the real-time trading dashboard is available at:
+
+> **Primary URL**: [http://localhost:8501/](http://localhost:8501/)
 
 ### 🙏 Acknowledgments
 Developed in collaboration with **Gemini (Google AI)** for architecture design and performance optimization.
