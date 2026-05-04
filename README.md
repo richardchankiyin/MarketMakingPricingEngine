@@ -189,28 +189,40 @@ chmod +x oms_perf_report.sh pricing_perf_report.sh
 ### 📋 OMS Performance Audit
 **Target Logs**: `logs/orders.log*` (Including `.gz` archives)
 
-Sample outcome:
-
-| Metric | Value | Interpretation |
-| :--- | :--- | :--- |
-| **Total Orders** | 18,328 | Sufficient sample size for statistical significance. |
-| **Avg Latency** | **2,394.63 μs** | Institutional-grade performance for multi-leg hedging. |
-| **Min Latency** | **280 μs** | "Hot path" execution with optimized object pooling. |
-| **Max Latency** | 1,080,224 μs | One-time JIT/Class-loading spike during cold start. |
-
 > **Audit Command**: 
 > `./oms_perf_report.sh`
+
+Sample outcome:
+
+```
+------------------------------------------------
+Market Making Engine: OMS Performance Audit
+Target: ./logs/orders.log*
+------------------------------------------------
+Total Orders Processed : 18328
+Average Execution Time : 2394.63 μs
+Fastest Execution (Min): 280 μs
+Slowest Execution (Max): 1080224 μs
+------------------------------------------------
+Note: High Max latency detected. This is typically
+attributed to JVM JIT compilation during cold start.
+```
 
 ### 🧩 Component Latency Breakdown
 **Target Logs**: `logs/orders.log` & `logs/applogs.log`
 
 Sample outcome:
 
-| Component | Avg Latency | Throughput (Count) | Role in Pipeline |
-| :--- | :--- | :--- | :--- |
-| **PricingEngine** | **281.78 μs** | 167,930 | Real-time spread and alpha skew calculation. |
-| **PriceAggregator** | **257,243.67 μs** | 79,500 | Cross-provider order book merging and sorting. |
-| **SignalEmitter** | **1,029.70 μs** | 56,727 | Internal event broadcasting and UI synchronization. |
+```
+------------------------------------------------------------
+ Pricing Component Latency Audit
+------------------------------------------------------------
+PricingEngine   | Avg:     281.78 μs | Min:       50 μs | Max:   164999 μs | Count: 167930
+PriceAggregator | Avg:  257243.67 μs | Min:    15960 μs | Max:  5177294 μs | Count: 79500
+SignalEmitter   | Avg:    1029.70 μs | Min:       20 μs | Max:   244348 μs | Count: 56727
+------------------------------------------------------------
+
+```
 
 #### 🔍 Analysis Observations:
 *   **Engine Efficiency**: The `PricingEngine` operates almost entirely within the CPU cache, maintaining sub-300μs speeds despite high tick volume.
