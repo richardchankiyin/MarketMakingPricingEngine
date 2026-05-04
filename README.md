@@ -211,6 +211,9 @@ attributed to JVM JIT compilation during cold start.
 ### 🧩 Component Latency Breakdown
 **Target Logs**: `logs/orders.log` & `logs/applogs.log`
 
+> **Audit Command**: 
+> `./pricing_perf_report.sh`
+
 Sample outcome:
 
 ```
@@ -223,14 +226,38 @@ SignalEmitter   | Avg:    1029.70 μs | Min:       20 μs | Max:   244348 μs | 
 ------------------------------------------------------------
 
 ```
+## ⚠️ Architectural Assumptions & Limitations
 
-#### 🔍 Analysis Observations:
-*   **Engine Efficiency**: The `PricingEngine` operates almost entirely within the CPU cache, maintaining sub-300μs speeds despite high tick volume.
-*   **Aggregator Complexity**: The `PriceAggregator` represents the primary computational cost. Latency here scales with the number of Liquidity Providers (LPs) and the depth of the book being aggregated.
-*   **Jitter Management**: Average `SignalEmitter` times remain near 1ms, ensuring that the dashboard reflects market changes without saturating the websocket connection.
+This engine is designed as a high-performance demonstration of market-making logic. To maintain focus on core pricing and hedging algorithms, the following architectural simplifications have been made to the current prototype:
 
-> **Audit Command**: 
-> `./pricing_perf_report.sh`
+### 1. Unified Process (In-Process Messaging)
+*   **Assumption**: Liquidity Providers (LP) and Local Takers (LT) connect to the `PriceAggregator` and `OMSHandler` within the same JVM instance.
+*   **Production Reality**: In a live environment, these components would reside in separate microservices. Communication would be handled via low-latency binary protocols (e.g., SBE/FIX) over a guaranteed messaging bus (e.g., Aeron or Solace) to support persistence, message replay, and failover.
+
+### 2. Guaranteed Hedge Execution (SOR)
+*   **Assumption**: The Smart Order Router (SOR) within the OMS assumes a 100% fill rate from Liquidity Providers when a hedge is sent.
+*   **Production Reality**: Real markets involve "Last Look" or liquidity fading, resulting in partial fills or rejections. A production OMS requires a sophisticated **Unhedged Risk Manager** to handle "broken hedges" and manage the resulting delta exposure.
+
+### 3. TCA Data Strategy & Persistence
+*   **Assumption**: TCA metrics are currently delegated to the gateway layer for real-time visualization, which is unsuitable for high-volume historical retrieval.
+*   **Production Reality**: TCA requires a decoupled **Time-Series Columnar Database** (e.g., ClickHouse or QuestDB).
+    *   **Asynchronous Persistence**: The OMS should stream raw execution events to a persistent bus (Kafka).
+    *   **Scheduled Push**: A dedicated service would batch-load enriched data into the TCA DB, allowing the UI to retrieve historical reports via API rather than streaming full history over WebSockets.
+
+### 4. Clock Synchronicity
+*   **Assumption**: Timestamps are generated using the local system clock (`System.nanoTime()`).
+*   **Production Reality**: Institutional systems require precision time synchronization (PTP/IEEE 1588) across servers to ensure accurate event sequencing for regulatory audit standards (e.g., MiFID II).
+
+### 5. Market Impact & Slippage
+*   **Assumption**: The engine assumes that internal hedging orders do not move the market.
+*   **Production Reality**: Large hedge orders cause "market impact." A production engine would include a **Slippage Model** to adjust pricing dynamically based on the available depth and our own participation rate.
+
+---
+
+## 🛠️ Future Improvements
+*   **Cold Start Mitigation**: Implement a pre-trade "warm-up" loop to trigger JIT compilation before the first market tick.
+*   **Persistence Layer**: Add a high-speed journaler (e.g., Chronicle Queue) to record internal state changes for post-trade regulatory reporting.
+*   **Advanced Alpha**: Integrate machine learning models into the `SignalEmitter` to predict short-term skew based on order flow imbalance (OFI).
 
 ## 🙏 Acknowledgments
 Developed in collaboration with **Gemini (Google AI)** for architecture design and performance optimization.
