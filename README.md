@@ -85,7 +85,7 @@ graph TD
 
 ---
 
-## 📊 Market Microstructure Scenarios
+## 📊 Simulation Scenarios
 
 The engine supports multiple deployment profiles to simulate different market conditions and hardware optimizations[cite: 1]. Use these to test the robustness of the pricing logic and JVM stability.
 
@@ -134,13 +134,13 @@ Before running the simulation, ensure you have the following installed:
 
 ```bash
 # Scenario A - Start the standard simulation
-docker-compose up --build
+docker compose down; docker-compose up --build
 
 # Scenario B - 'Toxic Arbitrage' stress-test scenario
-docker compose -f profiles/docker-compose-toxic.yml --project-directory . up --build -d
+docker compose down; docker compose -f profiles/docker-compose-toxic.yml --project-directory . up --build -d
 
 # Scenario C - 'High Performance' stress-test scenario (should have sufficient memory for this run!!!)
-docker compose -f profiles/docker-compose-highperf.yml --project-directory . up --build -d
+docker compose down; docker compose -f profiles/docker-compose-highperf.yml --project-directory . up --build -d
 ```
 ### 🔍 Verifying the Deployment
 
@@ -164,5 +164,5 @@ Once the Docker containers are healthy, the real-time trading dashboard is avail
 
 > **Primary URL**: [http://localhost:8501/](http://localhost:8501/)
 
-### 🙏 Acknowledgments
+## 🙏 Acknowledgments
 Developed in collaboration with **Gemini (Google AI)** for architecture design and performance optimization.
