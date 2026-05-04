@@ -11,34 +11,44 @@ The platform is architected with a strict separation of concerns between market 
 
 ```mermaid
 graph TD
-    subgraph Market_Data_Pipeline_Northbound
-        MG1[Market Generator] --> PA[Pricing Aggregator]
-        PA --> SE[Signal Emitter]
-        SE --> PE[Pricing Engine]
-        PE --> OMS_D[OMS Discovery]
+    %% Global Styles
+    classDef default fill:#f9f9f9,stroke:#333,stroke-width:1px,color:#333,font-family:Arial;
+    classDef highSpeed fill:#e1f5fe,stroke:#01579b,stroke-width:2px,color:#01579b,font-weight:bold;
+    classDef critical fill:#fff3e0,stroke:#e65100,stroke-width:2px,color:#e65100,font-weight:bold;
+    classDef gateway fill:#f3e5f5,stroke:#4a148c,stroke-width:2px,color:#4a148c,font-weight:bold;
+    classDef ui fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px,color:#1b5e20,font-weight:bold;
+
+    subgraph Northbound [Market Data & Pricing Pipeline]
+        MG1([Market Generator]) --- PA[Pricing Aggregator]
+        PA --- SE[Signal Emitter]
+        SE --- PE[Pricing Engine]
+        PE --- OMS_D[OMS Discovery]
     end
 
-    subgraph Execution_Pipeline_Southbound
-        MG2[Market Generator Takers] --> DIS[LMAX Disruptor Ring Buffer]
-        DIS --> OMS_E[OMS Execution]
-        OMS_E --> TCA[TCA Manager]
-        OMS_E --> HEDGE[Hedging Logic]
+    subgraph Southbound [Execution & Risk Pipeline]
+        MG2([Market Generator Takers]) --- DIS[[LMAX Disruptor Ring Buffer]]
+        DIS --- OMS_E[OMS Execution]
+        OMS_E --- TCA[TCA Manager]
+        OMS_E --- HEDGE[Hedging Logic]
     end
 
-    subgraph Gateway_Layer
-        OMS_D --> GS[Gateway Service]
-        TCA --> GS
-        GS --> SSE[SSE Publisher]
+    subgraph Distribution [Gateway Layer]
+        OMS_D -.-> GS(Gateway Service)
+        TCA -.-> GS
+        GS -.-> STATE[(Concurrent Master State)]
+        STATE -.-> SSE[SSE Publisher]
     end
 
-    subgraph Visualization
-        SSE --> ST[Streamlit Dashboard]
-        ST --> UI[Plotly Charts / OHLC]
+    subgraph Client [Visualization]
+        SSE ==> ST[Streamlit Dashboard]
+        ST ==> UI{{Plotly Charts / OHLC}}
     end
 
-    style DIS fill:#f96,stroke:#333,stroke-width:2px
-    style GS fill:#69f,stroke:#333,stroke-width:2px
-    style ST fill:#00CC96,stroke:#333,stroke-width:2px
+    %% Apply Classes
+    class DIS critical;
+    class GS,STATE gateway;
+    class ST,UI ui;
+    class PA,SE,PE highSpeed;
 ```
 
 ### 1. Market Data & Pricing Pipeline (Northbound)

@@ -6,6 +6,7 @@ import io.javalin.http.sse.SseClient;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.NavigableMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -175,15 +176,18 @@ public class GatewayService {
      */
     public void pushTCAUpdate(ClientMetrics clientMetrics, FirmMetrics firmMetrics) {
     	log.debug("Firm Metrics: {}", firmMetrics);
+        // no matter we flush or not, we have to perform TCAUpdate as it stores 
+        // the aggregated data. If we do not update here we will be at 
+        // risk of not showing some of the LT
+        
+        reusableTCAUpdate.updateMetrics(clientMetrics, firmMetrics);
     	if (tcaclients.isEmpty()) return;
     	
         long now = System.nanoTime();
         if (now - lastPushTCAUpdateTime.get() < intervalNanos) return;
         
-        
         if (lastPushTCAUpdateTime.getAndSet(now) != now) {
             synchronized (reusableTCAUpdate) {
-            	reusableTCAUpdate.updateMetrics(clientMetrics, firmMetrics);
             	log.debug("sending event: {}", clientMetrics);
                 for (SseClient client : tcaclients) {
                     client.sendEvent("tcaupdate", reusableTCAUpdate);
@@ -294,7 +298,7 @@ class FullBookUpdate {
 
 class TCAUpdate {
     // The master state preserved across pushes
-    private final Map<String, ClientMetrics> allClientMetrics = new HashMap<>();
+    private final Map<String, ClientMetrics> allClientMetrics = new ConcurrentHashMap<>();
     private FirmMetrics firmMetrics;
     private long timestamp;
 
