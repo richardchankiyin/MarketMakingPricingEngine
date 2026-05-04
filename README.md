@@ -81,7 +81,7 @@ graph TD
 *   **Market Generator (Takers)**: Simulates 15+ Liquidity Takers (LTs) attacking MM quotes based on premium and latency[cite: 1].
 *   **Disruptor (Ring Buffer)**: Acts as the high-speed sequencer, ensuring all trade attempts are processed in strict temporal order without thread contention[cite: 1].
 *   **OMS (Order Management System)**: Validates trades against the live book, executes fills, and triggers immediate hedging logic[cite: 1].
-*   **TCA Manager**: Calculates real-time metrics including **Fill Rate**, **Slippage**, and **Total PnL**[cite: 1].
+*   **TCA Manager**: Calculates real-time metrics including **Fill Rate**, **Toxicity**, and **Total PnL**[cite: 1].
 
 ---
 
