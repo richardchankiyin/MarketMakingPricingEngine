@@ -164,5 +164,28 @@ Once the Docker containers are healthy, the real-time trading dashboard is avail
 
 > **Primary URL**: [http://localhost:8501/](http://localhost:8501/)
 
+
+## 📝 Logging & Audit Trail
+
+During the simulation, the backend generates two primary log files to separate high-frequency trading data from general application state.
+
+| Log File | Content Description |
+| :--- | :--- |
+| `logs/orders.log` | **High-Frequency Audit Trail**: Every tick-to-trade event, order execution, and hedge leg is recorded here with microsecond precision. |
+| `logs/applogs.log` | **System State**: Contains JVM startup metrics, Docker health checks, and general engine lifecycle events. |
+
+---
+
+## 📊 Performance Auditing & Observability
+
+The repository includes a suite of specialized shell scripts to audit the engine's internal latency. These scripts utilize `zgrep` and `awk` to perform high-speed analysis across both active and archived (compressed) logs.
+
+### 🛠️ Setup
+Ensure the scripts have execution permissions before running the reports:
+```bash
+chmod +x oms_perf_report.sh pricing_perf_report.sh
+
+
+
 ## 🙏 Acknowledgments
 Developed in collaboration with **Gemini (Google AI)** for architecture design and performance optimization.
