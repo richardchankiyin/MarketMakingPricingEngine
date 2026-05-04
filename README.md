@@ -68,3 +68,53 @@ graph TD
     class GS,STATE gateway;
     class ST,UI ui;
     class PA,SE,PE highSpeed;
+```
+1. Market Data & Pricing Pipeline (Northbound)
+
+    Market Generator: Simulates 12+ Liquidity Providers (LPs) generating thousands of price updates per second [source: 1].
+
+    Pricing Aggregator: Consolidates fragmented LP quotes into a unified Top-of-Book and Full-Depth view [source: 1].
+
+    Signal Emitter: Analyzes order book imbalance and price velocity to generate an Alpha Skew (Bullish/Bearish bias) [source: 1].
+
+    Pricing Engine: Combines the Aggregated Price with the Alpha Skew and a configurable MIN_PROFIT_MARGIN to produce live Bid/Ask quotes [source: 1].
+
+2. Execution & Risk Pipeline (Southbound)
+
+    Market Generator (Takers): Simulates 15+ Liquidity Takers (LTs) attacking MM quotes based on premium and latency [source: 1].
+
+    Disruptor (Ring Buffer): Acts as the high-speed sequencer, ensuring all trade attempts are processed in strict temporal order without thread contention [source: 1].
+
+    OMS (Order Management System): Validates trades against the live book, executes fills, and triggers immediate hedging logic [source: 1].
+
+    TCA Manager: Calculates real-time metrics including Fill Rate, Slippage, and Total PnL [source: 1].
+
+📊 Market Microstructure Scenarios
+
+This engine demonstrates specific quantitative trading regimes via pre-configured Docker profiles:
+
+    Scenario A: The "Toxic Arbitrage": High Volatility (0.08) + 15 aggressive Takers. Demonstrates the "picked off" effect where the MM suffers from stale quote arbitrage [source: 1].
+
+    Scenario B: High-Performance Execution: Memory-pinned JVM (-Xms4g), NUMA optimization, and Generative ZGC ensuring sub-millisecond GC pauses [source: 1].
+
+⚡ Technical Highlights
+Component	Technology	Performance Benefit
+Concurrency	LMAX Disruptor	Mechanical sympathy; avoids traditional lock overhead [source: 1].
+Runtime	Java 21 (ZGC)	Generative ZGC keeps pause times < 1ms [source: 1].
+I/O	Virtual Threads	Scales to hundreds of UI sessions without thread starvation [source: 1].
+Frontend	Streamlit + Plotly	Optimized Pandas rendering with ignore_index=True for stability [source: 1].
+🚀 Getting Started
+Bash
+
+# Start the standard simulation
+docker-compose up --build -d
+
+# If you want to run the 'Toxic Arbitrage' stress-test scenario
+docker compose -f profiles/docker-compose-toxic.yml --project-directory . up --build -d
+
+# Browse
+http://localhost:8501
+
+🙏 Acknowledgments
+
+Developed in collaboration with Gemini (Google AI) for architecture design and performance optimization.
