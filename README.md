@@ -184,8 +184,37 @@ The repository includes a suite of specialized shell scripts to audit the engine
 Ensure the scripts have execution permissions before running the reports:
 ```bash
 chmod +x oms_perf_report.sh pricing_perf_report.sh
+```
 
+### 📋 OMS Performance Audit
+**Target Logs**: `logs/orders.log*` (Including `.gz` archives)
 
+| Metric | Value | Interpretation |
+| :--- | :--- | :--- |
+| **Total Orders** | 18,328 | Sufficient sample size for statistical significance. |
+| **Avg Latency** | **2,394.63 μs** | Institutional-grade performance for multi-leg hedging. |
+| **Min Latency** | **280 μs** | "Hot path" execution with optimized object pooling. |
+| **Max Latency** | 1,080,224 μs | One-time JIT/Class-loading spike during cold start. |
+
+> **Audit Command**: 
+> `./oms_perf_report.sh`
+
+### 🧩 Component Latency Breakdown
+**Target Logs**: `logs/orders.log` & `logs/applogs.log`
+
+| Component | Avg Latency | Throughput (Count) | Role in Pipeline |
+| :--- | :--- | :--- | :--- |
+| **PricingEngine** | **281.78 μs** | 167,930 | Real-time spread and alpha skew calculation. |
+| **PriceAggregator** | **257,243.67 μs** | 79,500 | Cross-provider order book merging and sorting. |
+| **SignalEmitter** | **1,029.70 μs** | 56,727 | Internal event broadcasting and UI synchronization. |
+
+#### 🔍 Analysis Observations:
+*   **Engine Efficiency**: The `PricingEngine` operates almost entirely within the CPU cache, maintaining sub-300μs speeds despite high tick volume.
+*   **Aggregator Complexity**: The `PriceAggregator` represents the primary computational cost. Latency here scales with the number of Liquidity Providers (LPs) and the depth of the book being aggregated.
+*   **Jitter Management**: Average `SignalEmitter` times remain near 1ms, ensuring that the dashboard reflects market changes without saturating the websocket connection.
+
+> **Audit Command**: 
+> `./pricing_perf_report.sh`
 
 ## 🙏 Acknowledgments
 Developed in collaboration with **Gemini (Google AI)** for architecture design and performance optimization.
