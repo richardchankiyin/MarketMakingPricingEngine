@@ -91,13 +91,36 @@ This engine demonstrates specific quantitative trading regimes via pre-configure
 *   **Scenario A: The "Toxic Arbitrage"**: High Volatility (0.08) + 15 aggressive Takers. Demonstrates the "picked off" effect where the MM suffers from stale quote arbitrage[cite: 1].
 *   **Scenario B: High-Performance Execution**: Memory-pinned JVM (`-Xms4g`), NUMA optimization, and Generative ZGC ensuring sub-millisecond GC pauses[cite: 1].
 
+## 🛠️ Technology Stack
+
+* **Backend**: Java 21+ utilizing **Generative ZGC** for sub-millisecond GC pauses and **Virtual Threads** for high-concurrency SSE broadcasting.
+* **Messaging**: **LMAX Disruptor** (Ring Buffer) for lock-free, deterministic event sequencing in the execution pipeline[cite: 1].
+* **API Gateway**: **Javalin** providing a lightweight SSE (Server-Sent Events) interface for real-time data streaming[cite: 1].
+* **Frontend**: **Python 3.12** using **Streamlit** for the dashboard and **Plotly** for high-frequency OHLC and PnL rendering[cite: 1].
+* **Containerization**: **Docker** & **Docker Compose** for consistent environment orchestration across deployment profiles.
+
+## 📋 Prerequisites
+
+Before running the simulation, ensure you have the following installed:
+
+1. **Docker & Docker Compose**:
+   * [Install Docker Desktop (Windows/Mac/Linux)](https://docs.docker.com/get-docker/)
+   * Verify via `docker compose version` in your terminal.
+
+2. **Java Mission Control (Optional)**:
+   * Recommended for monitoring Scenario D's performance via JMX on port `9010`.
+   * [Download JMC](https://www.oracle.com/java/technologies/jdk-mission-control-downloads.html)
+
+3. **Resources**:
+   * Minimum **4GB RAM** allocated to Docker to support the High-Performance JVM profile (Scenario D).
+
 ## ⚡ Technical Highlights
 
 | Component | Technology | Performance Benefit |
 | :--- | :--- | :--- |
-| **Concurrency** | LMAX Disruptor | Mechanical sympathy; avoids traditional lock overhead[cite: 1]. |
-| **Runtime** | Java 21 (ZGC) | Generative ZGC keeps pause times < 1ms[cite: 1]. |
-| **I/O** | Virtual Threads | Scales to hundreds of UI sessions without thread starvation[cite: 1]. |
+| **Engine Runtime** | Java 21 (ZGC) | Generative ZGC keeps pause times < 1ms[cite: 1]. |
+| **Messaging** | LMAX Disruptor | Mechanical sympathy; avoids traditional lock overhead[cite: 1]. |
+| **Javalin I/O** | Virtual Threads | Scales to hundreds of UI sessions without thread starvation[cite: 1]. |
 | **Frontend** | Streamlit + Plotly | Optimized Pandas rendering with `ignore_index=True` for stability[cite: 1]. |
 
 ## 🚀 Getting Started
