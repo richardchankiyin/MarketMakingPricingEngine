@@ -95,7 +95,7 @@ The engine supports multiple deployment profiles to simulate different market co
 | **B** | **Toxic Arbitrage** | High Volatility ($0.08$) + $15$ Aggressive Takers. | Observe "Stale Quote Arbitrage" and the impact of adverse selection. |
 | **C** | **High Performance** | JVM Pinned ($-Xms4g$), NUMA aware, & Generative ZGC. | Demonstrate sub-1ms GC pauses and maximized tick-to-trade throughput. |
 
-> **Note**: Scenarios B, C, and D are triggered by passing specific compose files using the `-f` flag during startup.
+> **Note**: Scenarios B and C are triggered by passing specific compose files using the `-f` flag during startup.
 
 
 ## 🛠️ Technology Stack
