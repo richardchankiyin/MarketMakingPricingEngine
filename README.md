@@ -134,7 +134,7 @@ Before running the simulation, ensure you have the following installed:
 
 ```bash
 # Scenario A - Start the standard simulation
-docker compose down; docker-compose up --build
+docker compose down; docker compose up --build
 
 # Scenario B - 'Toxic Arbitrage' stress-test scenario
 docker compose down; docker compose -f profiles/docker-compose-toxic.yml --project-directory . up --build -d
